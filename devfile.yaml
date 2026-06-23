@@ -4,7 +4,7 @@ metadata:
 parent:
   uri: https://raw.githubusercontent.com/batleforc/WeeboDevImage/refs/heads/main/che-min-mise/devfile.yaml
   components:
-    - name: tool
+    - name: tools
       container:
         endpoints:
           - exposure: public
