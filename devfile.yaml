@@ -3,6 +3,20 @@ metadata:
   name: weebo-che-project
 parent:
   uri: https://raw.githubusercontent.com/batleforc/WeeboDevImage/refs/heads/main/che-min-mise/devfile.yaml
+  components:
+    - name: tool
+      container:
+        endpoints:
+          - exposure: public
+            name: local-server
+            protocol: https
+            targetPort: 8080
+            path: /
+          - exposure: public
+            name: bundle-analyzer
+            path: /
+            protocol: https
+            targetPort: 8888
 
 projects:
   - name: main
