@@ -1,0 +1,24 @@
+version: '3'
+
+tasks:
+  init:
+    desc: "Init Dashboard"
+    dir: "/projects/dashboard"
+    cmds:
+      - cmd: mise use -g yarn
+        if: '! command -v yarn >/dev/null 2>&1'
+      - cmd: mise use -g oc
+        if: '! command -v oc >/dev/null 2>&1'
+      - yarn install
+  build:
+    desc: "Build dasbhoard"
+    dir: "/projects/dashboard"
+    cmds:
+      - yarn install
+      - yarn build
+  cheinche:
+    desc: "Start che-in-che"
+    dir: "/projects/dashboard"
+    cmds:
+      - yarn start:prepare
+      - yarn start -c

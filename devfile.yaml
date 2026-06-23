@@ -23,7 +23,7 @@ projects:
     git:
       remotes:
         url: https://github.com/batleforc/weebo-che-project.git
-  - name: dasbhoard
+  - name: dashboard
     git:
       remotes:
         url: https://github.com/batleforc/che-dashboard.git
