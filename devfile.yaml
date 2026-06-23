@@ -1,0 +1,16 @@
+schemaVersion: 2.3.0
+metadata:
+  name: weebo-che-project
+parent:
+  uri: https://raw.githubusercontent.com/batleforc/WeeboDevImage/refs/heads/main/che-min-mise/devfile.yaml
+
+projects:
+  - name: main
+    git:
+      remotes:
+        url: https://github.com/batleforc/weebo-che-project.git
+  - name: dasbhoard
+    git:
+      remotes:
+        url: https://github.com/batleforc/che-dashboard.git
+
