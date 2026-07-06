@@ -27,4 +27,14 @@ projects:
     git:
       remotes:
         url: https://github.com/batleforc/che-dashboard.git
+  - name: jb-plugin
+    clonePath: jb/plugin
+    git:
+      remotes:
+        url: https://github.com/batleforc/eclipse-che-gateway-plugin.git
+  - name: jb-ide
+    clonePath: jb/ide-dev-server
+    git:
+      remotes:
+        url: https://github.com/che-incubator/jetbrains-ide-dev-server.git
 
