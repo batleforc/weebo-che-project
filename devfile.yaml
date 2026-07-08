@@ -22,23 +22,23 @@ projects:
   - name: main
     git:
       remotes:
-        url: https://github.com/batleforc/weebo-che-project.git
+        origin: https://github.com/batleforc/weebo-che-project.git
   - name: dashboard
     git:
       remotes:
-        url: https://github.com/batleforc/che-dashboard.git
+        origin: https://github.com/batleforc/che-dashboard.git
   - name: jb-plugin
     clonePath: jb/plugin
     git:
       remotes:
-        url: https://github.com/batleforc/eclipse-che-gateway-plugin.git
+        origin: https://github.com/batleforc/eclipse-che-gateway-plugin.git
   - name: jb-ide
     clonePath: jb/ide-dev-server
     git:
       remotes:
-        url: https://github.com/che-incubator/jetbrains-ide-dev-server.git
+        origin: https://github.com/che-incubator/jetbrains-ide-dev-server.git
   - name: che-code
     git:
       remotes:
-        url: https://github.com/che-incubator/che-code.git
+        origin: https://github.com/batleforc/che-code.git
 
