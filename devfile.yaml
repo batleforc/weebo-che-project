@@ -37,4 +37,8 @@ projects:
     git:
       remotes:
         url: https://github.com/che-incubator/jetbrains-ide-dev-server.git
+  - name: che-code
+    git:
+      remotes:
+        url: https://github.com/che-incubator/che-code.git
 

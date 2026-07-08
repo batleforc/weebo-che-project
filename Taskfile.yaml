@@ -2,3 +2,8 @@ version: '3'
 
 includes:
   dash: .task/dash.yaml
+
+tasks:
+  init:
+    cmds:
+      - ln mise.toml /projects/jb/mise.toml
