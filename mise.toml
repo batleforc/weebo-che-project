@@ -1,4 +1,7 @@
 [tools]
 java = "latest"
 kotlin = { version = "latest", asset_pattern = "kotlin-compiler-*.zip", bin_path = "kotlinc/bin" }
+node = "24"
+python = "latest"
 task = "latest"
+yarn = "latest"

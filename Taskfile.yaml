@@ -6,4 +6,4 @@ includes:
 tasks:
   init:
     cmds:
-      - ln mise.toml /projects/jb/mise.toml
+      - ln mise.toml /projects/mise.toml
