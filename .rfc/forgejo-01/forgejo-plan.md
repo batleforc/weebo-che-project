@@ -125,7 +125,7 @@ Largest phase. Mirror the GitLab layout file by file.
 - [x] `ForgejoUrl extends DefaultFactoryUrl` (host, owner, repo, branch/tag/commit, devfile locations).
 - [x] `AbstractForgejoUrlParser`
   - [x] HTTPS forms: `/<owner>/<repo>[.git]`, `/src/branch/<b>`, `/src/tag/<t>`, `/src/commit/<sha>[/<path>]`.
-    - Branch/tag names may contain `/`: everything after `src/branch/` is the branch (same as GitHub `/tree/`), so `/src/branch/<b>/<path>` and `/raw/branch/<b>/<path>` cannot be split without an API call — not supported.
+    - Branch/tag names may contain `/`: a multi-segment `/src/branch|tag/<ref>[/<path>]` is resolved at parse time via `GET /api/v1/repos/{o}/{r}/branches|tags/{ref}` (shortest prefix first as Forgejo does, max 5 calls, user token if any, path ignored); on no match/API failure the whole rest is the ref. `/raw/branch/...` still unsupported.
   - [x] SSH forms: `git@<host>:<owner>/<repo>.git`, `ssh://git@<host>[:port]/<owner>/<repo>.git`.
   - [x] `isValid()`: configured endpoints first; unknown host probed **only** if the user has a `forgejo` PAT secret for that host.
 - [x] `ForgejoAuthorizingFileContentProvider extends AuthorizingFileContentProvider<ForgejoUrl>`
