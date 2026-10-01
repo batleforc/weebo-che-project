@@ -2,6 +2,9 @@ version: '3'
 
 includes:
   dash: .task/dash.yaml
+  forgejo: .task/forgejo.yaml
+  forks: .task/forks.yaml
+
 
 tasks:
   init:

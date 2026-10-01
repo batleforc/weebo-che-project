@@ -1,0 +1,79 @@
+version: '3'
+
+vars:
+  ORG: weebo-si # override: task forks ORG=other-org
+  UPSTREAM_ORG: eclipse-che
+  BRANCH: feat/forgejo-gitservice
+  REPOS: che-server che-operator che-dashboard che-docs
+
+tasks:
+  default:
+    desc: "Create forks, feature branches and print the status"
+    cmds:
+      - task: check
+      - task: create
+      - task: branch
+      - task: status
+
+  check:
+    desc: "Check gh auth and access to the organization"
+    preconditions:
+      - sh: command -v gh >/dev/null 2>&1
+        msg: "gh is missing: run `mise use -g gh`"
+      - sh: gh auth status >/dev/null 2>&1
+        msg: "Not logged in: run `gh auth login` (scopes: repo, read:org)"
+      - sh: gh api orgs/{{.ORG}} >/dev/null 2>&1
+        msg: "Organization {{.ORG}} not found or not accessible"
+
+  create:
+    desc: "Fork upstream repositories into the organization (idempotent)"
+    deps: [check]
+    cmds:
+      - |
+        for repo in {{.REPOS}}; do
+          if gh api "repos/{{.ORG}}/$repo" >/dev/null 2>&1; then
+            echo "✔ {{.ORG}}/$repo already exists"
+          else
+            gh repo fork "{{.UPSTREAM_ORG}}/$repo" --org "{{.ORG}}" --clone=false --default-branch-only
+            echo "✚ {{.ORG}}/$repo forked"
+          fi
+        done
+
+  branch:
+    desc: "Create {{.BRANCH}} on each fork from its default branch (idempotent)"
+    deps: [check]
+    cmds:
+      - |
+        for repo in {{.REPOS}}; do
+          # A fresh fork can take a few seconds to be ready
+          for i in 1 2 3 4 5; do gh api "repos/{{.ORG}}/$repo" >/dev/null 2>&1 && break; sleep 3; done
+          if gh api "repos/{{.ORG}}/$repo/branches/{{.BRANCH}}" >/dev/null 2>&1; then
+            echo "✔ {{.ORG}}/$repo:{{.BRANCH}} already exists"
+            continue
+          fi
+          default=$(gh api "repos/{{.ORG}}/$repo" --jq .default_branch)
+          sha=$(gh api "repos/{{.ORG}}/$repo/git/ref/heads/$default" --jq .object.sha)
+          gh api "repos/{{.ORG}}/$repo/git/refs" -f ref="refs/heads/{{.BRANCH}}" -f sha="$sha" >/dev/null
+          echo "✚ {{.ORG}}/$repo:{{.BRANCH}} created from $default@${sha:0:7}"
+        done
+
+  sync:
+    desc: "Sync each fork default branch with upstream"
+    deps: [check]
+    cmds:
+      - |
+        for repo in {{.REPOS}}; do
+          gh repo sync "{{.ORG}}/$repo" --source "{{.UPSTREAM_ORG}}/$repo"
+        done
+
+  status:
+    desc: "Show fork and branch status"
+    deps: [check]
+    cmds:
+      - |
+        for repo in {{.REPOS}}; do
+          default=$(gh api "repos/{{.ORG}}/$repo" --jq .default_branch 2>/dev/null) || { echo "✘ {{.ORG}}/$repo missing"; continue; }
+          behind=$(gh api "repos/{{.ORG}}/$repo/compare/{{.UPSTREAM_ORG}}:$default...$default" --jq .behind_by 2>/dev/null || echo "?")
+          has_branch=$(gh api "repos/{{.ORG}}/$repo/branches/{{.BRANCH}}" >/dev/null 2>&1 && echo yes || echo no)
+          printf '%-16s default=%-6s behind_upstream=%-4s %s=%s\n' "$repo" "$default" "$behind" "{{.BRANCH}}" "$has_branch"
+        done

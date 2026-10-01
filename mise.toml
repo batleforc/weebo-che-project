@@ -1,7 +1,11 @@
 [tools]
-java = "latest"
 kotlin = { version = "latest", asset_pattern = "kotlin-compiler-*.zip", bin_path = "kotlinc/bin" }
 node = "24"
 python = "latest"
 task = "latest"
 yarn = "latest"
+java = "temurin-17"
+maven = "3"
+go = "1.26"
+jq = "latest"
+gh = "latest"

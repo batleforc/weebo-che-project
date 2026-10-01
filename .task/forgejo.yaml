@@ -1,0 +1,74 @@
+version: '3'
+
+vars:
+  SERVER_MODULES: >-
+    wsmaster/che-core-api-factory-forgejo-common,wsmaster/che-core-api-factory-forgejo,wsmaster/che-core-api-auth-forgejo-common,wsmaster/che-core-api-auth-forgejo
+
+tasks:
+  init:
+    desc: "Init the Forgejo RFC workspace"
+    cmds:
+      - ln -sf /projects/main/mise.forgejo.toml /projects/mise.toml
+      - mise install
+      # Devfile multi-remotes not supported yet: add upstream by hand
+      - |
+        for pair in che-server:che-server che-operator:che-operator dashboard:che-dashboard che-docs:che-docs; do
+          dir="/projects/${pair%%:*}"; repo="${pair##*:}"
+          git -C "$dir" remote get-url upstream >/dev/null 2>&1 \
+            || git -C "$dir" remote add upstream "https://github.com/eclipse-che/$repo.git"
+          git -C "$dir" fetch upstream --quiet
+        done
+
+  seed:
+    desc: "Create test repo, scoped PAT and OAuth2 app on the sidecar Forgejo"
+    cmds:
+      - |
+        curl -sf -u "$FORGEJO_DEV_USER:$FORGEJO_DEV_PASSWORD" -H 'Content-Type: application/json' \
+          -X POST "$FORGEJO_URL/api/v1/user/repos" \
+          -d '{"name":"devfile-sample","private":true,"auto_init":true}' || echo "repo exists"
+      - |
+        curl -sf -u "$FORGEJO_DEV_USER:$FORGEJO_DEV_PASSWORD" -H 'Content-Type: application/json' \
+          -X POST "$FORGEJO_URL/api/v1/repos/$FORGEJO_DEV_USER/devfile-sample/contents/devfile.yaml" \
+          -d "{\"content\":\"$(printf 'schemaVersion: 2.3.0\nmetadata:\n  name: forgejo-sample\n' | base64 -w0)\",\"message\":\"add devfile\"}" || echo "devfile exists"
+      - |
+        curl -sf -u "$FORGEJO_DEV_USER:$FORGEJO_DEV_PASSWORD" -H 'Content-Type: application/json' \
+          -X POST "$FORGEJO_URL/api/v1/users/$FORGEJO_DEV_USER/tokens" \
+          -d "{\"name\":\"che-dev-$(date +%s)\",\"scopes\":[\"read:user\",\"write:repository\"]}" | jq -r '"PAT: " + .sha1'
+      - |
+        test -n "$CHE_DEV_HOST" || { echo "Set CHE_DEV_HOST to create the OAuth2 app"; exit 0; }
+        curl -sf -u "$FORGEJO_DEV_USER:$FORGEJO_DEV_PASSWORD" -H 'Content-Type: application/json' \
+          -X POST "$FORGEJO_URL/api/v1/user/applications/oauth2" \
+          -d "{\"name\":\"che-dev\",\"confidential_client\":true,\"redirect_uris\":[\"https://$CHE_DEV_HOST/api/oauth/callback\"]}" \
+          | jq '{client_id, client_secret}'
+
+  server:build:
+    desc: "Build che-server without tests"
+    dir: /projects/che-server
+    cmds:
+      - mvn -B clean install -DskipTests
+
+  server:test:
+    desc: "Test the Forgejo modules of che-server"
+    dir: /projects/che-server
+    cmds:
+      - mvn -B test -pl {{.SERVER_MODULES}} -am
+
+  operator:test:
+    desc: "Regenerate resources and test che-operator"
+    dir: /projects/che-operator
+    cmds:
+      - make generate manifests
+      - make test
+
+  operator:dev-resources:
+    desc: "Regenerate CRD, bundle and Helm chart"
+    dir: /projects/che-operator
+    cmds:
+      - make update-dev-resources
+
+  dashboard:test:
+    desc: "Unit tests for che-dashboard"
+    dir: /projects/dashboard
+    cmds:
+      - yarn install
+      - yarn test
