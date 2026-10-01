@@ -1,0 +1,13 @@
+# Strategic merge patch for the che-operator Deployment (installed as plain manifests, no OLM/Helm).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: che-operator
+  namespace: eclipse-che
+spec:
+  template:
+    spec:
+      containers:
+        - name: che-operator
+          image: ghcr.io/weebo-si/che-operator:develop
+          imagePullPolicy: Always

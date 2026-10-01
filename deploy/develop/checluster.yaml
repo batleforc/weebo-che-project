@@ -1,0 +1,75 @@
+# CheCluster running the weebo-si `develop` images (Forgejo gitService + workspace Storage tab).
+# Based on the live eclipse-che/eclipse-che CheCluster (Che 7.121.0, ArgoCD app `che-app`).
+# Changes from the live spec are marked with `# develop:`.
+# Requires the forked CRD and operator first, see readme.md.
+apiVersion: org.eclipse.che/v2
+kind: CheCluster
+metadata:
+  name: eclipse-che
+  namespace: eclipse-che
+  annotations:
+    che.eclipse.org/self-signed-certificate: "false"
+spec:
+  components:
+    cheServer:
+      extraProperties:
+        CHE_SYSTEM_ADMIN_NAME: Batleforc
+      deployment:
+        containers:
+          - name: che
+            image: ghcr.io/weebo-si/che-server:develop # develop: Forgejo factory + OAuth modules
+            imagePullPolicy: Always # develop: moving tag, rebuilt nightly
+    dashboard:
+      logLevel: INFO
+      deployment:
+        containers:
+          - name: che-dashboard
+            image: ghcr.io/weebo-si/che-dashboard:develop # develop: was quay.io/eclipse/che-dashboard:pr-1663
+            imagePullPolicy: Always
+    metrics:
+      enable: true
+  devEnvironments:
+    defaultComponents:
+      - name: tool
+        container:
+          image: ghcr.io/batleforc/weebodevimage/che-min-mise:main
+    defaultNamespace:
+      autoProvision: false
+      template: dev-ws-<username>
+    disableContainerBuildCapabilities: false
+    maxNumberOfRunningWorkspacesPerUser: 5
+    maxNumberOfWorkspacesPerUser: 20
+    networking:
+      externalTLSConfig:
+        enabled: true
+        annotations:
+          cert-manager.io/cluster-issuer: outbound
+    persistUserHome:
+      enabled: true
+    secondsOfInactivityBeforeIdling: 10800
+    storage:
+      # per-workspace: the Storage tab resizes storage-<workspaceId>, no [Shared] badge
+      pvcStrategy: per-workspace
+      perUserStrategyPvcConfig:
+        claimSize: 10Gi
+      perWorkspaceStrategyPvcConfig:
+        claimSize: 10Gi
+  gitServices:
+    forgejo: # develop: new field, needs the forked CRD
+      - secretName: forgejo-oauth-config
+  networking:
+    annotations:
+      kubernetes.io/ingress.class: traefik
+    auth:
+      gateway:
+        oAuthProxy:
+          cookieExpireSeconds: 32400
+      identityProviderURL: https://auth.batleforc.fr/application/o/che-cluster/
+      oAuthClientName: che-cluster
+      oAuthScope: openid email profile offline_access
+      # develop: name of a Secret instead of the plain-text value (deprecated by the operator)
+      oAuthSecret: che-oidc-client
+    domain: cde.batleforc.fr
+    hostname: cde.batleforc.fr
+    ingressClassName: traefik
+    tlsSecretName: che-cluster-tls
