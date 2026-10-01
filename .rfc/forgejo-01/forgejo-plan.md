@@ -228,4 +228,4 @@ Largest phase. Mirror the GitLab layout file by file.
 - [ ] SSH port discovery: `/api/v1/settings/repository` vs dedicated annotation.
 - [ ] Username written in the `git-credential` secret.
 - [ ] GitHub resolver claims Gitea/Forgejo servers (`AbstractGithubURLParser#isGiteaCompatibleServer`): keep Forgejo-first ordering, or exclude configured Forgejo hosts from the GitHub detection?
-- [ ] Token revocation: Forgejo has no OAuth revoke endpoint, `ForgejoOAuthAuthenticator#invalidateToken` is not supported.
+- [ ] Token revocation: Forgejo has no OAuth revoke endpoint; `ForgejoOAuthAuthenticator#invalidateToken` only drops the token on the Che side (it stays valid on Forgejo until it expires or the app is revoked in the Forgejo settings).
