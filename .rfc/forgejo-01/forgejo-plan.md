@@ -33,7 +33,12 @@ Phases 1, 2 and 3 can run in parallel. DevWorkspace Operator and `che-code` are 
   ```
   - Create an admin user, a private repo `test/devfile-sample` with a `devfile.yaml`, an OAuth2 application (redirect `https://<che-host>/api/oauth/callback`) and a scoped PAT.
 - [ ] Dev Che instance: a dedicated `CheCluster` on a throwaway namespace of the Talos cluster, images overridden via `spec.components.*.deployment.containers[].image`.
-- [ ] Image publishing: build pipeline in Forgejo Actions pushing `che-server`, `che-operator`, `che-dashboard` dev images to the internal registry, signed with Sigstore.
+- [ ] Image publishing: [`weebo-si/che-images`](https://github.com/weebo-si/che-images) builds `che-server`, `che-operator`, `che-dashboard` from the weebo-si forks and pushes them to `ghcr.io/weebo-si/<image>`, signed with cosign keyless.
+  - Changed from Forgejo Actions + internal registry: the forks live on GitHub, so GitHub Actions + GHCR avoids mirroring them.
+  - [x] Repo created from the `batleforc/weebo-base` template; matrix workflow (nightly, manual, on workflow change), actions pinned to SHAs, no build cache.
+  - [x] Tags: `feat-forgejo-gitservice` and `sha-<short>` of the fork commit.
+  - [ ] First green run (`task images:build` then `task images:watch`).
+  - [ ] GHCR packages set to public (they start private), or a pull secret on the cluster.
 
 **Done when:** a stock Che instance runs with overridden images and the Forgejo test repo is reachable from a workspace.
 
@@ -45,18 +50,19 @@ Standalone refactor, useful for any self-hosted GitHub/GitLab. Ships first to bu
 
 ### Tasks
 
-- [ ] `packages/dashboard-frontend/src/components/ImportFromGit/helpers.ts`
-  - [ ] Add `buildProviderByHost(gitOauth: IGitOauth[], tokens: api.PersonalAccessToken[]): Map<string, api.GitProvider>`.
-  - [ ] `getSupportedGitService(location, providerByHost?)`: lookup by `url.host` first, keep the substring heuristic as fallback.
-  - [ ] Thread the map through `getRepositoryUrlFromLocation()` and `getBranchFromLocation()`.
-- [ ] Selector in `store/GitOauthConfig` exposing the host → provider map (endpoints from `/api/oauth`).
-- [ ] Wire callers (Import from Git form, factory flow) to pass the map.
+- [x] `packages/dashboard-frontend/src/components/ImportFromGit/helpers.ts`
+  - [x] Add `buildProviderByHost(gitOauth: IGitOauth[], tokens: api.PersonalAccessToken[]): Map<string, api.GitProvider>`.
+  - [x] `getSupportedGitService(location, providerByHost?)`: lookup by `url.host` first, keep the substring heuristic as fallback.
+  - [x] Thread the map through `getRepositoryUrlFromLocation()` and `getBranchFromLocation()`.
+- [x] Selector in `store/GitOauthConfig` exposing the host → provider map (endpoints from `/api/oauth`).
+- [x] Wire callers (Import from Git form, factory flow) to pass the map.
+  - Only caller is `ImportFromGit/RepoOptionsAccordion`; the factory flow does not use these helpers. The accordion now loads `/api/oauth` and the user PATs on mount.
 
 ### Tests
 
-- [ ] `git.example.internal` configured as GitLab endpoint → detected as `gitlab`.
-- [ ] Host matched by both table and heuristic → table wins.
-- [ ] Unknown host, no config → unchanged behaviour (error).
+- [x] `git.example.internal` configured as GitLab endpoint → detected as `gitlab`.
+- [x] Host matched by both table and heuristic → table wins.
+- [x] Unknown host, no config → unchanged behaviour (error).
 
 **Done when:** importing from a self-hosted GitLab whose host does not contain `gitlab` works; existing tests green.
 
@@ -66,28 +72,31 @@ Standalone refactor, useful for any self-hosted GitHub/GitLab. Ships first to bu
 
 ### Tasks
 
-- [ ] `api/v2/checluster_types.go`
-  - [ ] Add `Forgejo []ForgejoService \`json:"forgejo,omitempty"\`` to `CheClusterGitServices`.
-  - [ ] Add `ForgejoService { SecretName string }` (no `Endpoint` field).
-- [ ] `pkg/common/constants/constants.go`
-  - [ ] `ForgejoOAuth = "forgejo"`
-  - [ ] `ForgejoOAuthConfigMountPath = "/che-conf/oauth/forgejo"`
-  - [ ] `ForgejoOAuthConfigClientIdFileName = "id"`, `ForgejoOAuthConfigClientSecretFileName = "secret"`
-- [ ] `pkg/deploy/server/server_deployment.go`
-  - [ ] `MountForgejoOAuthConfig()` copied from `MountGitLabOAuthConfig()`; secrets sorted by `che.eclipse.org/scm-server-endpoint`, second one suffixed `__2`.
-  - [ ] Env: `CHE_OAUTH2_FORGEJO_CLIENTID__FILEPATH`, `CHE_OAUTH2_FORGEJO_CLIENTSECRET__FILEPATH`, `CHE_INTEGRATION_FORGEJO_OAUTH__ENDPOINT` (+ `__2` variants).
-  - [ ] Call it right after `MountGitLabOAuthConfig()`.
-- [ ] `api/v2/checluster_webhook.go`
-  - [ ] Loop over `Spec.GitServices.Forgejo` in `validate()`.
-  - [ ] `case "forgejo"` in `validateOAuthSecret()` → required keys `id`, `secret`.
-  - [ ] Reject when `che.eclipse.org/scm-server-endpoint` is missing.
-  - [ ] Warning when more than two Forgejo secrets exist.
-- [ ] Regenerate CRD, deepcopy, OLM bundle and Helm chart (`make update-dev-resources`).
+- [x] `api/v2/checluster_types.go`
+  - [x] Add `Forgejo []ForgejoService \`json:"forgejo,omitempty"\`` to `CheClusterGitServices`.
+  - [x] Add `ForgejoService { SecretName string }` (no `Endpoint` field).
+- [x] `pkg/common/constants/constants.go`
+  - [x] `ForgejoOAuth = "forgejo"`
+  - [x] `ForgejoOAuthConfigMountPath = "/che-conf/oauth/forgejo"`
+  - [x] `ForgejoOAuthConfigClientIdFileName = "id"`, `ForgejoOAuthConfigClientSecretFileName = "secret"`
+- [x] `pkg/deploy/server/server_deployment.go`
+  - [x] `MountForgejoOAuthConfig()` copied from `MountGitLabOAuthConfig()`; secrets sorted by `che.eclipse.org/scm-server-endpoint`, second one suffixed `__2`.
+  - [x] Env: `CHE_OAUTH2_FORGEJO_CLIENTID__FILEPATH`, `CHE_OAUTH2_FORGEJO_CLIENTSECRET__FILEPATH`, `CHE_INTEGRATION_FORGEJO_OAUTH__ENDPOINT` (+ `__2` variants).
+  - [x] Call it right after `MountGitLabOAuthConfig()`.
+- [x] `api/v2/checluster_webhook.go`
+  - [x] Loop over `Spec.GitServices.Forgejo` in `validate()`.
+  - [x] `case "forgejo"` in `validateOAuthSecret()` → required keys `id`, `secret`.
+  - [x] Reject when `che.eclipse.org/scm-server-endpoint` is missing.
+  - [x] Warning when more than two Forgejo secrets exist.
+- [x] Regenerate CRD, deepcopy, OLM bundle and Helm chart (`make update-dev-resources`).
+  - Ran `generate manifests`, `bundle CHANNEL=next INCREMENT_BUNDLE_VERSION=false`, `gen-deployment`, `update-helmcharts CHANNEL=next` individually (skips the unrelated UBI bump; needs kislyuk `yq` and `rsync`).
+- Note: `ForgejoMaxOAuthConfigs = 2`: all secrets are still mounted (`__3`…) like GitLab; the webhook only warns.
+- Note: v1 API (`api/v1`) intentionally not extended, same as Azure DevOps.
 
 ### Tests
 
-- [ ] `server_deployment_test.go`: 0, 1, 2 secrets → expected volumes, mounts and env vars.
-- [ ] Webhook tests: missing keys, missing endpoint annotation, valid secret.
+- [x] `server_deployment_test.go`: 0, 1, 2 secrets → expected volumes, mounts and env vars.
+- [x] Webhook tests: missing keys, missing endpoint annotation, valid secret.
 
 **Done when:** applying the Forgejo OAuth secret makes the env vars appear on the `che` deployment; CRD diff limited to the new field.
 
@@ -99,55 +108,57 @@ Largest phase. Mirror the GitLab layout file by file.
 
 ### 3.1 Module skeletons
 
-- [ ] `wsmaster/che-core-api-factory-forgejo-common`
-- [ ] `wsmaster/che-core-api-factory-forgejo`
-- [ ] `wsmaster/che-core-api-auth-forgejo-common`
-- [ ] `wsmaster/che-core-api-auth-forgejo`
-- [ ] Register in `wsmaster/pom.xml`, root `pom.xml` (dependencyManagement), `assembly/assembly-wsmaster-war/pom.xml`.
+- [x] `wsmaster/che-core-api-factory-forgejo-common`
+- [x] `wsmaster/che-core-api-factory-forgejo`
+- [x] `wsmaster/che-core-api-auth-forgejo-common`
+- [x] `wsmaster/che-core-api-auth-forgejo`
+- [x] Register in `wsmaster/pom.xml`, root `pom.xml` (dependencyManagement), `assembly/assembly-wsmaster-war/pom.xml`.
 
 ### 3.2 API client & URL model (`factory-forgejo-common`)
 
-- [ ] `ForgejoApiClient`
-  - [ ] `getUser(token)` → `GET /api/v1/user` (`login`, `full_name`, `email`)
-  - [ ] `getFileContent(owner, repo, path, ref, token?)` → `GET /api/v1/repos/{owner}/{repo}/raw/{path}?ref=`
-  - [ ] `isForgejoServer()` → `GET /api/forgejo/v1/version`, fallback `GET /api/v1/version`
-  - [ ] Header `Authorization: token <t>`; 401 → `ScmUnauthorizedException("forgejo", …)`; 404 → `ScmItemNotFoundException`.
-  - [ ] Default JVM truststore only, no TLS bypass; tokens never logged.
-- [ ] `ForgejoUrl extends DefaultFactoryUrl` (host, owner, repo, branch/tag/commit, devfile locations).
-- [ ] `AbstractForgejoUrlParser`
-  - [ ] HTTPS forms: `/<owner>/<repo>[.git]`, `/src/branch/<b>[/<path>]`, `/src/tag/<t>`, `/src/commit/<sha>`, `/raw/branch/<b>/<path>`.
-  - [ ] SSH forms: `git@<host>:<owner>/<repo>.git`, `ssh://git@<host>[:port]/<owner>/<repo>.git`.
-  - [ ] `isValid()`: configured endpoints first; unknown host probed **only** if the user has a `forgejo` PAT secret for that host.
-- [ ] `ForgejoAuthorizingFileContentProvider extends AuthorizingFileContentProvider<ForgejoUrl>`
-- [ ] `AbstractForgejoFactoryParametersResolver extends BaseFactoryParameterResolver`
-- [ ] `AbstractForgejoScmFileResolver implements ScmFileResolver`
-- [ ] `AbstractForgejoOAuthTokenFetcher implements PersonalAccessTokenFetcher` (fetch, refresh via refresh token, `isValid` via `/api/v1/user`).
-- [ ] `AbstractForgejoUserDataFetcher extends AbstractGitUserDataFetcher`
+- [x] `ForgejoApiClient`
+  - [x] `getUser(token)` → `GET /api/v1/user` (`login`, `full_name`, `email`)
+  - [x] `getFileContent(owner, repo, path, ref, token?)` → `GET /api/v1/repos/{owner}/{repo}/raw/{path}?ref=`
+  - [x] `isForgejoServer()` → `GET /api/forgejo/v1/version`, fallback `GET /api/v1/version`
+  - [x] Header `Authorization: token <t>`; 401 → `ScmUnauthorizedException("forgejo", …)`; 404 → `ScmItemNotFoundException`.
+  - [x] Default JVM truststore only, no TLS bypass; tokens never logged.
+- [x] `ForgejoUrl extends DefaultFactoryUrl` (host, owner, repo, branch/tag/commit, devfile locations).
+- [x] `AbstractForgejoUrlParser`
+  - [x] HTTPS forms: `/<owner>/<repo>[.git]`, `/src/branch/<b>`, `/src/tag/<t>`, `/src/commit/<sha>[/<path>]`.
+    - Branch/tag names may contain `/`: everything after `src/branch/` is the branch (same as GitHub `/tree/`), so `/src/branch/<b>/<path>` and `/raw/branch/<b>/<path>` cannot be split without an API call — not supported.
+  - [x] SSH forms: `git@<host>:<owner>/<repo>.git`, `ssh://git@<host>[:port]/<owner>/<repo>.git`.
+  - [x] `isValid()`: configured endpoints first; unknown host probed **only** if the user has a `forgejo` PAT secret for that host.
+- [x] `ForgejoAuthorizingFileContentProvider extends AuthorizingFileContentProvider<ForgejoUrl>`
+- [x] `AbstractForgejoFactoryParametersResolver extends BaseFactoryParameterResolver`
+- [x] `AbstractForgejoScmFileResolver implements ScmFileResolver`
+- [x] `AbstractForgejoOAuthTokenFetcher implements PersonalAccessTokenFetcher` (fetch, refresh via refresh token, `isValid` via `/api/v1/user`).
+- [x] `AbstractForgejoUserDataFetcher extends AbstractGitUserDataFetcher`
 
 ### 3.3 Concrete classes (`factory-forgejo`)
 
-- [ ] `Forgejo*` + `Forgejo*Second` for each abstract class, bound to `che.integration.forgejo.oauth_endpoint` / `_2`.
-- [ ] `ForgejoModule`: multibinders `PersonalAccessTokenFetcher`, `GitUserDataFetcher`.
+- [x] `Forgejo*` + `Forgejo*Second` for each abstract class, bound to `che.integration.forgejo.oauth_endpoint` / `_2`.
+- [x] `ForgejoModule`: multibinders `PersonalAccessTokenFetcher`, `GitUserDataFetcher`.
 
 ### 3.4 OAuth (`auth-forgejo-common`, `auth-forgejo`)
 
-- [ ] `ForgejoOAuthAuthenticator extends OAuthAuthenticator`
-  - [ ] `getOAuthProvider()` → `forgejo` / `forgejo_2`; `getEndpointUrl()` → configured endpoint.
-  - [ ] Authorize `/login/oauth/authorize`, token `/login/oauth/access_token`, scopes `read:user write:repository`.
-- [ ] `ForgejoUser implements User`
-- [ ] `AbstractForgejoOAuthAuthenticatorProvider` (+ `NoopOAuthAuthenticator` when unconfigured), concrete + `Second`.
-- [ ] Auth-side `ForgejoModule`.
+- [x] `ForgejoOAuthAuthenticator extends OAuthAuthenticator`
+  - [x] `getOAuthProvider()` → `forgejo` / `forgejo_2`; `getEndpointUrl()` → configured endpoint.
+  - [x] Authorize `/login/oauth/authorize`, token `/login/oauth/access_token`, scopes `read:user write:repository`.
+- [x] `ForgejoUser implements User`
+- [x] `AbstractForgejoOAuthAuthenticatorProvider` (+ `NoopOAuthAuthenticator` when unconfigured), concrete + `Second`.
+- [x] Auth-side `ForgejoModule`.
 
 ### 3.5 Wiring & config
 
-- [ ] `WsMasterModule`: resolvers into `FactoryParametersResolver` multibinder, file resolvers into `ScmFileResolver` multibinder, `install()` both Forgejo modules.
-- [ ] `che.properties`: `che.integration.forgejo.oauth_endpoint[_2]`, `che.oauth2.forgejo.clientid_filepath[_2]`, `che.oauth2.forgejo.clientsecret_filepath[_2]`, all `NULL`.
-- [ ] `KubernetesGitCredentialManager`: use the Forgejo `login` as username (see RFC open question).
+- [x] `WsMasterModule`: resolvers into `FactoryParametersResolver` multibinder, file resolvers into `ScmFileResolver` multibinder, `install()` both Forgejo modules.
+  - Forgejo resolvers are bound **first**: the GitHub parser accepts any server whose `/api/v1/user` returns 401 (Gitea-compatible detection), Forgejo included, and ties are won by the first bound resolver. To discuss upstream (see open questions).
+- [x] `che.properties`: `che.integration.forgejo.oauth_endpoint[_2]`, `che.oauth2.forgejo.clientid_filepath[_2]`, `che.oauth2.forgejo.clientsecret_filepath[_2]`, all `NULL`.
+- [x] `KubernetesGitCredentialManager`: no change needed — PATs already use `scmUserName` (= Forgejo `login`), OAuth tokens use `oauth2:<token>`, which Forgejo accepts (the password is used as the token). To confirm against a live instance.
 
 ### Tests
 
-- [ ] Unit: URL parser table-driven over every URL form; resolvers/fetchers with WireMock (200, 401, 404, refresh).
-- [ ] Integration: Testcontainers `codeberg.org/forgejo/forgejo`, full OAuth flow + refresh, private devfile resolution.
+- [x] Unit: URL parser table-driven over every URL form; resolvers/fetchers with WireMock (200, 401, 404, refresh).
+- [ ] Integration: Testcontainers `codeberg.org/forgejo/forgejo`, full OAuth flow + refresh, private devfile resolution. (No container runtime in the dev workspace.)
 
 **Done when:** a private Forgejo repo URL starts a workspace with devfile resolved, OAuth connect works, `.gitconfig` filled, `git push` succeeds.
 
@@ -157,19 +168,20 @@ Largest phase. Mirror the GitLab layout file by file.
 
 ### Tasks
 
-- [ ] `packages/common/src/dto/api/index.ts`: `GitOauthProvider += 'forgejo' | 'forgejo_2'`, `GitProvider += 'forgejo'`.
-- [ ] `pages/UserPreferences/const.ts`: labels, `GIT_PROVIDER_ENDPOINTS.forgejo = 'https://codeberg.org'`.
-- [ ] `pages/UserPreferences/GitServices/List/index.tsx`: icon; **not** added to `CAN_REVOKE_FROM_DASHBOARD`.
-- [ ] PAT form: endpoint required for `forgejo`.
-- [ ] `ImportFromGit/helpers.ts`: `forgejo` cases in `getRepositoryUrlFromLocation()` (cut at `/src/`) and `getBranchFromLocation()` (`src/branch/<b>`).
-- [ ] `store/.../actionCreators/helpers.ts`: `forgejo` branch in `getWarningFromResponse()`.
-- [ ] `dashboard-backend/.../personalAccessTokenApi/helpers.ts`: accept `forgejo` provider name.
-- [ ] Forgejo logo asset (check CC BY-SA 4.0 attribution requirements).
+- [x] `packages/common/src/dto/api/index.ts`: `GitOauthProvider += 'forgejo' | 'forgejo_2'`, `GitProvider += 'forgejo'`.
+- [x] `pages/UserPreferences/const.ts`: labels, `GIT_PROVIDER_ENDPOINTS.forgejo = ''`.
+  - Changed from `https://codeberg.org`: the endpoint field is pre-filled with the default, so a self-hosted token would silently be saved against Codeberg.
+- [x] `pages/UserPreferences/GitServices/List/index.tsx`: **not** added to `CAN_REVOKE_FROM_DASHBOARD` (the existing tooltip links to the Forgejo instance for manual revocation). No icon: the list has none for any provider.
+- [x] PAT form: endpoint required for `forgejo` (form invalid while the endpoint is empty).
+- [x] `ImportFromGit/helpers.ts`: `forgejo` cases in `getRepositoryUrlFromLocation()` (cut at `/src/`) and `getBranchFromLocation()` (`src/branch/<b>`).
+- [x] `store/.../actionCreators/helpers.ts`: `forgejo` branch in `getWarningFromResponse()`.
+- [x] `dashboard-backend/.../personalAccessTokenApi/helpers.ts`: accept `forgejo` provider name (type-driven, no code change; test added).
+- [x] ~~Forgejo logo asset~~: not needed, the dashboard shows no provider logos.
 
 ### Tests
 
-- [ ] Unit: provider detection, repo/branch extraction, PAT creation payload.
-- [ ] Manual: User Preferences → Git Services shows Forgejo; PAT add/delete.
+- [x] Unit: provider detection, repo/branch extraction, PAT creation payload.
+- [ ] Manual: User Preferences → Git Services shows Forgejo; PAT add/delete. (Needs the Phase 0 dev instance.)
 
 **Done when:** full user journey works from the dashboard against Forgejo, with no manual secret.
 
@@ -177,9 +189,14 @@ Largest phase. Mirror the GitLab layout file by file.
 
 ## Phase 5 — Documentation (`che-docs`)
 
-- [ ] Admin guide: "Configuring OAuth 2.0 for Forgejo" (application creation, secret YAML, annotations).
-- [ ] User guide: Forgejo in "Using a Git provider access token" and supported URL formats.
-- [ ] `CheCluster` reference: `spec.gitServices.forgejo`.
+- [x] Admin guide: "Configuring OAuth 2.0 for Forgejo" (application creation, secret YAML, annotations).
+  - `integrate/pages/configuring-oauth-2-for-forgejo.adoc` + 2 partials, nav, Git providers overview, "what to configure next", troubleshooting (redirect URI, mandatory endpoint annotation, 2-secret limit).
+- [x] User guide: Forgejo in "Using a Git provider access token" and supported URL formats.
+- [x] `CheCluster` reference: `spec.gitServices.forgejo` (`tools/checluster_docs_gen.sh` section + TOC entry; the table is generated from the operator CRD).
+
+**Merge order:** the generator fetches the CRD of the operator release branch matching the docs version and fails on a missing section (verified: exit 5 against the current upstream CRD). Merge this PR only once a `che-operator` release contains `spec.gitServices.forgejo`.
+
+**Verified:** local Antora build (without collector/htmltest, reference generated from the forked operator CRD): no new error or warning.
 
 ---
 
@@ -187,8 +204,8 @@ Largest phase. Mirror the GitLab layout file by file.
 
 - [ ] Forgejo OAuth2 application created at instance level; client id/secret stored in Vault.
 - [ ] `ExternalSecret` producing `forgejo-oauth-config` in `eclipse-che` with the labels/annotations from the RFC.
-- [ ] `CheCluster` (GitOps): `spec.gitServices.forgejo: [{secretName: forgejo-oauth-config}]` + forked image overrides.
-- [ ] Kyverno / admission: allow the forked image references.
+- [ ] `CheCluster` (GitOps): `spec.gitServices.forgejo: [{secretName: forgejo-oauth-config}]` + forked image overrides (`ghcr.io/weebo-si/che-server`, `ghcr.io/weebo-si/che-dashboard`; `ghcr.io/weebo-si/che-operator` on the operator Deployment).
+- [ ] Kyverno / admission: allow `ghcr.io/weebo-si/*` and verify the cosign signature (identity `https://github.com/weebo-si/che-images/.github/workflows/build.yml@refs/heads/main`, issuer `https://token.actions.githubusercontent.com`).
 - [ ] Remove the manual `git-credential` secrets once OAuth is validated.
 - [ ] Switch back to upstream images when the PRs ship in a Che release.
 
@@ -210,3 +227,5 @@ Largest phase. Mirror the GitLab layout file by file.
 - [ ] Token revocation endpoint for dashboard revoke.
 - [ ] SSH port discovery: `/api/v1/settings/repository` vs dedicated annotation.
 - [ ] Username written in the `git-credential` secret.
+- [ ] GitHub resolver claims Gitea/Forgejo servers (`AbstractGithubURLParser#isGiteaCompatibleServer`): keep Forgejo-first ordering, or exclude configured Forgejo hosts from the GitHub detection?
+- [ ] Token revocation: Forgejo has no OAuth revoke endpoint, `ForgejoOAuthAuthenticator#invalidateToken` is not supported.

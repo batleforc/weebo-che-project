@@ -101,6 +101,10 @@ projects:
         origin: https://github.com/weebo-si/che-docs.git
       checkoutFrom:
         revision: feat/forgejo-gitservice
+  - name: che-images
+    git:
+      remotes:
+        origin: https://github.com/weebo-si/che-images.git
 
 commands:
   - id: init
