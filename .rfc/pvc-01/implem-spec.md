@@ -362,3 +362,11 @@ Rules:
 - Operator RBAC change in a separate PR on `che-operator`, linked to the dashboard PR.
 - Risks in section 8 checked and reported in the PR description.
 - PR description references issue #23934 and includes screenshots of each tab state and the modal.
+
+## 11. Status
+
+- [x] Implemented on `batleforc/che-dashboard` branch `feat/workspace-storage` (`1826e4c`), based on upstream `main`.
+- [x] Merged with the Forgejo work into `develop` on `weebo-si/che-dashboard`; images built by `weebo-si/che-images` (`:develop`).
+- [ ] Manual validation on the cluster (batleforc).
+- [ ] Upstream PR on `eclipse-che/che-dashboard` (batleforc), referencing issue #23934, with screenshots of each tab state and the modal.
+- [ ] Operator RBAC PR on `eclipse-che/che-operator` (section 5), linked to the dashboard PR.
