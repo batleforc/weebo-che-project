@@ -1,0 +1,59 @@
+# Controls `task forks:update` (scripts/fork-sync.sh).
+#
+# Each fork is cloned in a cache dir (FORK_SYNC_DIR, default ~/.cache/weebo-fork-sync), never in
+# the /projects working copies. Nothing is pushed unless PUSH=true.
+#
+# Remotes available in every fork: `origin` (the fork) and `upstream` (the upstream repo).
+# Extra remotes are declared per fork under `remotes`.
+#
+# A branch reference is either:
+#   - a string: a branch of the fork (origin), e.g. `feat/forgejo-gitservice`
+#   - an object: `{ remote: <name>, branch: <branch> }` for a branch outside the fork
+#
+# Steps, in order, for each enabled fork:
+#   1. sync:    fast-forward the fork branches to the same upstream branches (never forced)
+#   2. fetch:   copy outside branches into the fork (`to`, default: same name); fast-forward only
+#               unless `force: true`
+#   3. develop: merge `base` then each `merge` entry, in order, into the develop branch
+#               (`--no-ff`, no rebase, no force push). A conflict aborts the merge and the fork
+#               is not pushed.
+#
+# License: an outside branch ends up in our public fork and in the images built from `develop`.
+# Only merge code from EPL-2.0 Che repos (upstream or forks of them). Check anything else first.
+
+defaults:
+  org: weebo-si
+  upstreamOrg: eclipse-che
+  sync: [main]
+  develop:
+    enabled: true
+    branch: develop
+    base: main
+
+forks:
+  che-server:
+    develop:
+      merge:
+        - feat/forgejo-gitservice
+
+  che-operator:
+    develop:
+      merge:
+        - feat/forgejo-gitservice
+
+  che-dashboard:
+    remotes:
+      batleforc: https://github.com/batleforc/che-dashboard.git
+    fetch:
+      # Example: copy an outside branch into the fork before merging it
+      # - from: { remote: upstream, branch: some-upstream-pr }
+      #   to: upstream/some-upstream-pr
+      #   force: true
+    develop:
+      merge:
+        - { remote: batleforc, branch: feat/forgejo-gitservice }
+        - { remote: batleforc, branch: feat/workspace-storage }
+
+  che-docs:
+    develop:
+      enabled: false
