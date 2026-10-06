@@ -26,7 +26,9 @@ projects:
   - name: dashboard
     git:
       remotes:
-        origin: https://github.com/batleforc/che-dashboard.git
+        origin: https://github.com/weebo-si/che-dashboard.git
+      checkoutFrom:
+        revision: develop
   - name: jb-plugin
     clonePath: jb/plugin
     git:
