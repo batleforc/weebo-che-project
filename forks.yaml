@@ -48,6 +48,11 @@ forks:
         - feat/forgejo-gitservice
         - feat/workspace-storage
 
+  che-code:
+    develop:
+      merge:
+        - feat/init-copy-cache
+
   che-docs:
     develop:
       enabled: false
