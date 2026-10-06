@@ -8,7 +8,7 @@ Oct 6, 2026 · @Maxime · Statut : Draft
 
 Cette RFC rend la copie conditionnelle. L'image porte une clé de version (`<version VS Code>-<hash du contenu>`), le volume garde la clé de ce qu'il contient, et l'init container ne recopie les assemblies que si les deux diffèrent. Les fichiers que le launcher modifie en place à chaque boot, les entrypoints et les settings Machine restent copiés à chaque démarrage, ce qui garde le comportement actuel.
 
-Le changement touche deux fichiers de `che-code` : `build/scripts/entrypoint-init-container.sh` et `build/dockerfiles/assembly.Dockerfile`, plus un test du launcher. Il est développé sur le fork `weebo-si/che-code`, intégré à notre `develop`, puis proposé upstream à `che-incubator/che-code`.
+Le changement touche deux fichiers de `che-code` : `build/scripts/entrypoint-init-container.sh` et `build/dockerfiles/assembly.Dockerfile`. Il est développé sur le fork `weebo-si/che-code`, intégré à notre `develop`, puis proposé upstream à `che-incubator/che-code`.
 
 C'est le premier axe d'un travail plus large, qui vise un second boot VS Code sous les 40 s (voir [Objectifs](#objectifs-et-non-objectifs)).
 
@@ -173,16 +173,16 @@ Points de conception :
 
 ### Synchronisation avec le launcher
 
-La liste `PATCHED_FILES` duplique `launcher/src/files.ts`, plus `product.json`. Un fichier ajouté à `files.ts` et oublié dans le script ferait revenir le bug des masques consommés. Un test du launcher protège contre cet oubli :
+La liste `PATCHED_FILES` duplique `launcher/src/files.ts`, plus `product.json`. Un fichier ajouté à `files.ts` et oublié dans le script ferait revenir le bug des masques consommés. Un contrôle dans `assembly.Dockerfile` fait échouer le build dans ce cas : il lit les constantes `FILE_*` du `files.js` compilé du launcher et vérifie que chacune, ainsi que `product.json`, figure dans `PATCHED_FILES`. Il échoue aussi s'il ne trouve aucune constante, par exemple si le format de `files.js` change.
 
-`launcher/tests/init-container-patched-files.spec.ts` : lit `build/scripts/entrypoint-init-container.sh` et vérifie que chaque constante exportée par `files.ts`, ainsi que `product.json`, figure dans `PATCHED_FILES`.
+Ce contrôle ne peut pas être un test Jest du launcher : ces tests ne tournent que dans le build Docker de chaque plateforme, où `launcher/` est copié seul, sans `build/scripts/`. L'assembly est le seul endroit où le script et le launcher compilé sont présents ensemble.
 
 ## Stratégie de tests
 
 **Automatisés**
 
-- Le test de synchronisation `files.ts` ↔ `PATCHED_FILES` ci-dessus.
-- Les tests existants du launcher restent verts (`yarn test` dans `launcher/`).
+- Le contrôle `files.ts` ↔ `PATCHED_FILES` au build de l'assembly, ci-dessus.
+- Les tests existants du launcher restent verts (`npm test` dans `launcher/`).
 
 **Manuels, sur le cluster weebo-si, avec la stratégie `per-user`**
 
@@ -197,7 +197,7 @@ La liste `PATCHED_FILES` duplique `launcher/src/files.ts`, plus `product.json`. 
 
 - **Changement d'UID entre deux boots.** Si l'UID du pod change (namespace recréé, `securityContext` modifié), `rm` et `cp` sur des fichiers existants peuvent échouer. Avec `set -e`, l'init container échoue de façon visible au lieu de démarrer sur un contenu à moitié copié. Le problème existe déjà aujourd'hui avec `cp` sur des fichiers existants. À vérifier sur OpenShift et sur Kubernetes vanilla.
 - **Volume partagé.** Le design suppose un volume `checode` propre à chaque workspace (subpath par workspace avec `per-user`). À confirmer dans DevWorkspace Operator. Si deux workspaces partageaient le même chemin, deux copies simultanées pourraient s'entremêler.
-- **Fichier patché oublié.** Couvert par le test de synchronisation, à condition que les futurs patchs passent par `files.ts`.
+- **Fichier patché oublié.** Couvert par le contrôle au build de l'assembly, à condition que les futurs patchs passent par `files.ts`.
 
 ## Plan de livraison
 
@@ -211,7 +211,6 @@ La liste `PATCHED_FILES` duplique `launcher/src/files.ts`, plus `product.json`. 
 ## Licences
 
 - `che-code` est sous EPL-2.0. Les fichiers modifiés gardent leur licence et leur en-tête Red Hat, sans ligne weebo-si ajoutée.
-- Le nouveau test (`launcher/tests/init-container-patched-files.spec.ts`) reçoit exactement l'en-tête de licence attendu par le repo che-code.
 - Aucune nouvelle dépendance : `find`, `sha256sum` et `sed` viennent de l'image builder existante.
 - Une image che-code donnée à un client ou publiée doit être construite depuis un commit poussé sur le fork public `weebo-si/che-code` (EPL-2.0 §3.2). L'image embarque aussi VS Code (MIT) : ses notices restent dans l'image.
 - La contribution upstream demande un ECA signé avec l'email de l'auteur des commits.
