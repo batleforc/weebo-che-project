@@ -205,9 +205,12 @@ step_develop() {
         -z $(command git rev-list --no-merges "$dst" --not "${merged[@]}") ]]; then
     say "develop: $branch up to date"
   else
-    # Commits made on develop directly would be lost by the rebuild: refuse, they belong in a branch
-    local lost
-    lost=$(command git rev-list --no-merges "$dst" --not "${merged[@]}" "upstream/$base" 2>/dev/null | wc -l)
+    # Commits made on develop directly would be lost by the rebuild: refuse, they belong in a branch.
+    # A commit rewritten by a rebase of a merge entry (same author, date and subject) is not lost.
+    local lost fmt='%an %at %s'
+    lost=$(LC_ALL=C comm -23 \
+      <(command git log --no-merges --format="$fmt" "$dst" --not "${merged[@]}" | LC_ALL=C sort -u) \
+      <(command git log --no-merges --format="$fmt" HEAD | LC_ALL=C sort -u) | grep -c . || true)
     if ((lost > 0)); then
       warn "develop: $branch has $lost commits not in $base or the merge entries, move them to a branch first"
       return
