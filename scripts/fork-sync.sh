@@ -5,7 +5,7 @@
 #   status   show what each step would change, push nothing
 #   sync     fast-forward the `sync` branches of each fork to upstream
 #   fetch    copy the `fetch` outside branches into each fork
-#   develop  merge base + `merge` branches into the develop branch
+#   develop  rebuild the develop branch from base, then merge the `merge` branches into it
 #   update   sync, fetch then develop
 #
 # Env: CONFIG (default: forks.yaml), PUSH=true to push, FORK_SYNC_DIR (clone cache),
@@ -149,24 +149,24 @@ step_develop() {
     if [[ $1 == origin && -n ${pending[$2]:-} ]]; then echo "${pending[$2]}"; else echo "$1/$2"; fi
   }
 
+  # develop is rebuilt from base on every run: the merge entries are the only thing it adds
   local start
   start=$(resolve origin "$base")
-  if ref_exists "origin/$branch"; then start=origin/$branch; fi
-  if ! ref_exists "$start"; then warn "develop: $start not found"; return; fi
+  if ! ref_exists "$start"; then warn "develop: $base not found"; return; fi
   command git checkout -q --detach "$start"
-  local before
-  before=$(command git rev-parse HEAD)
 
-  local refs=("\"$base\"")
+  local refs=()
   while read -r ref; do if [[ -n $ref ]]; then refs+=("$ref"); fi; done \
     < <(cfgj "(.forks[\"$fork\"].develop.merge // [])[]")
 
+  local merged=("$start")
   for ref in "${refs[@]}"; do
     read -r remote src < <(ref_parts "$ref")
     local commit name
     commit=$(resolve "$remote" "$src")
     name=$([[ $remote == origin ]] && echo "$src" || echo "$remote/$src")
     if ! ref_exists "$commit"; then warn "develop: $name not found"; return; fi
+    merged+=("$commit")
     if command git merge-base --is-ancestor "$commit" HEAD; then
       say "develop: $name already merged"
       continue
@@ -189,8 +189,31 @@ step_develop() {
     fi
   done
 
-  if [[ $(command git rev-parse HEAD) != "$before" ]] || ! ref_exists "origin/$branch"; then
+  local dst="origin/$branch"
+  if ! ref_exists "$dst"; then
+    say "develop: create $branch at $(short HEAD)"
     PUSHES+=("$(command git rev-parse HEAD):refs/heads/$branch")
+    return
+  fi
+  # Up to date when the current develop has the same content and holds nothing but base, the
+  # merge entries and merge commits: then don't rewrite it (no new sha, no image rebuild)
+  local m same=true
+  for m in "${merged[@]}"; do
+    command git merge-base --is-ancestor "$m" "$dst" || same=false
+  done
+  if [[ $same == true && $(command git rev-parse "HEAD^{tree}") == $(command git rev-parse "$dst^{tree}") &&
+        -z $(command git rev-list --no-merges "$dst" --not "${merged[@]}") ]]; then
+    say "develop: $branch up to date"
+  else
+    # Commits made on develop directly would be lost by the rebuild: refuse, they belong in a branch
+    local lost
+    lost=$(command git rev-list --no-merges "$dst" --not "${merged[@]}" "upstream/$base" 2>/dev/null | wc -l)
+    if ((lost > 0)); then
+      warn "develop: $branch has $lost commits not in $base or the merge entries, move them to a branch first"
+      return
+    fi
+    say "develop: rebuild $branch from $base ($(short "$dst") -> $(short HEAD), force push)"
+    PUSHES+=("+$(command git rev-parse HEAD):refs/heads/$branch")
   fi
 }
 
