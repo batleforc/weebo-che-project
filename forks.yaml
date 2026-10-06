@@ -49,6 +49,7 @@ forks:
         - feat/workspace-storage
 
   che-code:
+    upstreamOrg: che-incubator
     develop:
       merge:
         - feat/init-copy-cache

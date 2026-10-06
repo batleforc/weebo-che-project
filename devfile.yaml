@@ -40,5 +40,9 @@ projects:
   - name: che-code
     git:
       remotes:
-        origin: https://github.com/batleforc/che-code.git
+        origin: https://github.com/weebo-si/che-code.git
+        batleforc: https://github.com/batleforc/che-code.git
+      checkoutFrom:
+        remote: origin
+        revision: develop
 

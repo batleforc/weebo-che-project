@@ -8,7 +8,7 @@ Oct 6, 2026 · @Maxime · Statut : Draft
 
 Cette RFC rend la copie conditionnelle. L'image porte une clé de version (`<version VS Code>-<hash du contenu>`), le volume garde la clé de ce qu'il contient, et l'init container ne recopie les assemblies que si les deux diffèrent. Les fichiers que le launcher modifie en place à chaque boot, les entrypoints et les settings Machine restent copiés à chaque démarrage, ce qui garde le comportement actuel.
 
-Le changement touche deux fichiers de `che-code` : `build/scripts/entrypoint-init-container.sh` et `build/dockerfiles/assembly.Dockerfile`, plus un test du launcher. Il est développé sur le fork `weebo-si/che-code`, intégré à notre `develop`, puis proposé upstream à `eclipse-che/che-code`.
+Le changement touche deux fichiers de `che-code` : `build/scripts/entrypoint-init-container.sh` et `build/dockerfiles/assembly.Dockerfile`, plus un test du launcher. Il est développé sur le fork `weebo-si/che-code`, intégré à notre `develop`, puis proposé upstream à `che-incubator/che-code`.
 
 C'est le premier axe d'un travail plus large, qui vise un second boot VS Code sous les 40 s (voir [Objectifs](#objectifs-et-non-objectifs)).
 
@@ -205,7 +205,7 @@ La liste `PATCHED_FILES` duplique `launcher/src/files.ts`, plus `product.json`. 
 2. Relever les mesures manquantes de la section Contexte sur l'image actuelle.
 3. Implémenter sur `feat/init-copy-cache` (Dockerfile, script, test), avec `Signed-off-by` sur chaque commit.
 4. Construire l'image depuis `develop` poussée sur le fork public, déployer sur le cluster weebo-si, dérouler les tests manuels et remesurer le second boot complet par rapport à la cible de 40 s.
-5. Ouvrir la PR upstream vers `eclipse-che/che-code` avec les mesures avant/après.
+5. Ouvrir la PR upstream vers `che-incubator/che-code` avec les mesures avant/après.
 6. Une fois la PR mergée upstream, retirer `feat/init-copy-cache` de `develop.merge`.
 
 ## Licences
