@@ -31,13 +31,13 @@ fval() { yq -r ".forks[\"$1\"]$2 // .defaults$2 // \"\"" "$CONFIG"; }
 say()  { printf '  %s\n' "$*"; }
 warn() { printf '  ⚠ %s\n' "$*" >&2; FAILED=1; }
 
-# Resolve a branch reference (string or {remote, branch}) to "<remote> <branch>"
+# Resolve a branch reference (string or {branch, remote, rfc}) to "<remote> <branch> [rfc]"
 ref_parts() {
   local json=$1
   if [[ $(yq -r 'type' <<<"$json") == "!!str" ]]; then
     echo "origin $(yq -r '.' <<<"$json")"
   else
-    echo "$(yq -r '.remote' <<<"$json") $(yq -r '.branch' <<<"$json")"
+    yq -r '[.remote // "origin", .branch, .rfc // ""] | join(" ")' <<<"$json"
   fi
 }
 
@@ -161,10 +161,14 @@ step_develop() {
 
   local merged=("$start")
   for ref in "${refs[@]}"; do
-    read -r remote src < <(ref_parts "$ref")
+    read -r remote src rfc < <(ref_parts "$ref")
     local commit name
     commit=$(resolve "$remote" "$src")
     name=$([[ $remote == origin ]] && echo "$src" || echo "$remote/$src")
+    if [[ -n $rfc ]]; then
+      [[ -d $(dirname "$CONFIG")/.rfc/$rfc ]] || say "develop: $name: RFC $rfc not found in .rfc/"
+      name="$name (RFC $rfc)"
+    fi
     if ! ref_exists "$commit"; then warn "develop: $name not found"; return; fi
     merged+=("$commit")
     if command git merge-base --is-ancestor "$commit" HEAD; then
@@ -175,7 +179,7 @@ step_develop() {
     n=$(command git rev-list --count "HEAD..$commit")
     local sign=() out conflicts
     if [[ $SIGN == false ]]; then sign=(-c commit.gpgsign=false); fi
-    if out=$(command git "${sign[@]}" merge -q --no-ff --no-edit -m "chore: merge $name into $branch" "$commit" 2>&1); then
+    if out=$(command git "${sign[@]}" merge -q --no-ff --no-edit -m "chore: merge ${name% (RFC*} into $branch" "$commit" 2>&1); then
       say "develop: merge $name (+$n commits)"
     else
       conflicts=$(command git diff --name-only --diff-filter=U | tr '\n' ' ')

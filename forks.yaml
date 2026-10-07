@@ -8,7 +8,9 @@
 #
 # A branch reference is either:
 #   - a string: a branch of the fork (origin), e.g. `feat/forgejo-gitservice`
-#   - an object: `{ remote: <name>, branch: <branch> }` for a branch outside the fork
+#   - an object: `{ branch: <branch>, remote: <name>, rfc: <dir> }`. `remote` (default: origin) for a
+#     branch outside the fork, `rfc` for the plan or spec in `.rfc/<dir>` that the branch implements
+#     (shown by `task forks:plan`)
 #
 # Steps, in order, for each enabled fork:
 #   1. sync:    fast-forward the fork branches to the same upstream branches (never forced)
@@ -35,18 +37,18 @@ forks:
   che-server:
     develop:
       merge:
-        - feat/forgejo-gitservice
+        - { branch: feat/forgejo-gitservice, rfc: forgejo-01 }
 
   che-operator:
     develop:
       merge:
-        - feat/forgejo-gitservice
+        - { branch: feat/forgejo-gitservice, rfc: forgejo-01 }
 
   che-dashboard:
     develop:
       merge:
-        - feat/forgejo-gitservice
-        - feat/workspace-storage
+        - { branch: feat/forgejo-gitservice, rfc: forgejo-01 }
+        - { branch: feat/workspace-storage, rfc: pvc-01 }
 
   che-code:
     upstreamOrg: che-incubator
@@ -56,8 +58,8 @@ forks:
     develop:
       base: 7.123.x
       merge:
-        - feat/init-copy-cache
-        - feat/container-fonts
+        - { branch: feat/init-copy-cache, rfc: che-code-01 }
+        - { branch: feat/container-fonts, rfc: che-code-02 }
 
   che-docs:
     develop:
