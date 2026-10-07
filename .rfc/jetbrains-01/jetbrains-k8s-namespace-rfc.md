@@ -1,6 +1,6 @@
 # RFC — Utiliser le plugin JetBrains Gateway sur un cluster Kubernetes (namespace saisi par l'utilisateur)
 
-Oct 7, 2026 · @Maxime · Statut : Brouillon
+Oct 7, 2026 · @Maxime · Statut : En cours d'implémentation (`weebo-si/devspaces-gateway-plugin`, `feat/k8s-namespace`)
 
 ## Résumé
 
@@ -40,7 +40,13 @@ Il n'y a donc qu'un appel à remplacer pour les namespaces, plus le prérempliss
 
 L'API Kubernetes de notre cluster accepte les jetons OIDC d'Authentik. Côté poste, le kubeconfig des développeurs utilise `kubectl oidc-login` (plugin `exec`), qui ouvre le navigateur au premier appel puis met le jeton en cache.
 
-Le client Java gère déjà ce cas : `KubeConfig.getCredentials()` (`client-java` 24.0.0) lance la commande `exec` (API `client.authentication.k8s.io/v1`, `v1beta1` ou `v1alpha1`) et la fait passer avant le champ `token`. Le lien profond, qui construit son client avec `ClientBuilder.kubeconfig(...)`, en profite déjà. Seul l'assistant ne le fait pas : il lit le champ `token` et construit son propre client.
+Le client Java sait lancer la commande `exec` : `KubeConfig.getCredentials()` (`client-java` 24.0.0, `runExec`) la fait passer avant le champ `token`. Le lien profond, qui construit son client avec `ClientBuilder.kubeconfig(...)`, en profite déjà. L'assistant ne le fait pas : il lit le champ `token` et construit son propre client.
+
+`runExec` a trois défauts pour un login interactif :
+
+- il cherche la commande dans le PATH de la JVM. Gateway lancé depuis le Dock sur macOS n'a pas `/opt/homebrew/bin` ni `/usr/local/bin` : `kubectl` est introuvable ;
+- il envoie le stderr de la commande vers celui de Gateway (`Redirect.INHERIT`), que personne ne voit. C'est là qu'`oidc-login` affiche l'URL de login quand il ne peut pas ouvrir de navigateur ;
+- il bloque sur la lecture du stdout, qui ne s'interrompt pas : annuler ne fait rien, et le processus n'est pas tué. Il avale aussi les erreurs (`null`).
 
 ### État de notre fork
 
@@ -86,21 +92,32 @@ Le nom n'est pas vérifié dans l'étape serveur : l'étape workspaces le lit ju
 
 Quand l'utilisateur clique sur Suivant avec le champ Token vide, et que l'utilisateur kubeconfig du cluster choisi a une entrée `exec` :
 
-1. le plugin appelle `KubeConfig.getCredentials()` sur ce contexte, dans le thread de la barre de progression (« Getting a token from kubectl oidc-login… ») ; `oidc-login` ouvre le navigateur si son cache est vide ;
+1. le plugin lance la commande `exec` lui-même (`KubeConfigUtils.getExecToken`), dans le thread de la barre de progression (« Getting a token from kubectl (kubeconfig exec plugin)… ») ; `oidc-login` ouvre le navigateur si son cache est vide ;
 2. le jeton obtenu suit le chemin actuel (`createValidatedApiClient`) ;
 3. il n'est **pas** écrit dans le kubeconfig, même si « Save configuration » est coché : un `token` statique à côté de l'`exec` ferait utiliser un jeton expiré à d'autres outils.
 
 Sans `exec`, rien ne change : le champ est prérempli avec le `token` du kubeconfig (`getUserTokenForCluster`), comme aujourd'hui. Un jeton saisi à la main passe toujours avant `exec`.
 
-Pour savoir si le champ peut rester vide, `KubeConfigUser` gagne un booléen `hasExec` (lu dans `fromMap`). Le texte d'aide du champ devient « Leave empty to use the kubeconfig exec plugin (kubectl oidc-login) » quand il est vrai. `isNextEnabled()` accepte un champ vide dans ce cas.
+`KubeConfigUser` et `Cluster` gardent l'entrée `exec` brute (lue dans `fromMap`). `isNextEnabled()` accepte un champ Token vide quand le cluster choisi a un `exec`. Le champ Token n'a pas de texte d'aide en plus : le champ vide suffit.
+
+`KubeConfigUtils.getExecToken(exec, onStderrLine)` corrige les défauts de `runExec` :
+
+| Défaut de `runExec` | `getExecToken` |
+|---|---|
+| PATH de la JVM | Environnement de `EnvironmentUtil.getEnvironmentMap()` (celui du shell de login, déjà utilisé pour `KUBECONFIG`), plus l'`env` de l'entrée `exec`. La commande est cherchée dans ce PATH, avec ou sans `.exe` |
+| stderr invisible | Lu ligne à ligne : écrit dans `idea.log` et passé à `onStderrLine`. L'onglet Token affiche la première URL `http(s)://` de chaque ligne sous la barre de progression (« Log in at … ») |
+| Annulation sans effet | Le thread attend `waitFor()`, qui s'interrompt. Annuler la barre de progression (`runInterruptible`) tue la commande et ses descendants (sinon un enfant, d'un `sh -c` par exemple, garde les pipes ouverts) |
+| Erreurs avalées | `IOException` avec le code de sortie et les 20 dernières lignes de stderr, ou « not found in PATH », ou « printed no token » |
+
+Le jeton est lu dans `status.token` de l'`ExecCredential` imprimé sur stdout. `interactiveMode` et `provideClusterInfo` ne sont pas gérés (`oidc-login` n'en a pas besoin).
 
 L'`exec` lance une commande écrite dans le kubeconfig de l'utilisateur, avec ses droits : c'est ce que fait déjà `kubectl`, et le lien profond du plugin. Aucune commande n'est lancée sans clic sur Suivant.
 
 ### Contexte et settings
 
 ```kotlin
-// DevSpacesContext
-var namespace: String? = null
+// DevSpacesContext. Pas `namespace` : le nom masquerait les variables `namespace` des tests qui mockent le contexte
+var selectedNamespace: String? = null
 
 // DevSpacesState
 var namespaces by map<String, String>()   // URL du serveur -> namespace
@@ -120,6 +137,8 @@ val namespaces = devSpacesContext.namespace?.let { listOf(it) }
 
 Le reste ne change pas : `fetchDevWorkspacesForNamespace()` pour chaque namespace, puis le watch démarre sur les namespaces de `lastResourceVersions`. Le log qui compte les projects compte maintenant des namespaces.
 
+Une exception : aujourd'hui, un namespace sans workspace n'est pas surveillé (limite connue, commentée dans le code). Le namespace saisi l'est toujours, pour qu'un workspace créé depuis le dashboard apparaisse sans rafraîchir.
+
 ### Messages d'erreur
 
 | Cas | Code | Message |
@@ -134,8 +153,13 @@ Les trois passent par le `Dialogs.error(...)` existant de `refreshAndWatchAllDev
 
 **Unitaires** (dans les tests existants, `src/test/kotlin`) :
 
-- `KubeConfigUser.fromMap` : `hasExec` vrai avec une entrée `exec`, faux sinon.
-- Onglet Token : champ vide + `exec` → jeton tiré de `getCredentials()` (commande factice dans le test), rien d'écrit dans le kubeconfig ; champ rempli → `exec` ignoré.
+- `KubeConfigUtils.getClusters` : lit le `namespace` du contexte et l'`exec` de l'utilisateur.
+- `KubeConfigUtils.getExecToken` (commandes factices `sh -c`) : renvoie le jeton et passe le stderr ; échec avec le code de sortie et le stderr dans le message ; commande absente du PATH ; interruption du thread qui tue la commande (`sleep 30` arrêté en moins d'une seconde).
+- `ApiException.toNamespaceMessage` : 403, 404, autre code.
+
+Le choix de la source des namespaces et le préremplissage sont dans des classes d'UI (`DevSpacesWorkspacesStepView`, `ServerSettings` privé) : couverts par les tests manuels.
+
+Dans un conteneur sans X11, lancer les tests avec `JAVA_TOOL_OPTIONS=-Djava.awt.headless=true`, sinon le framework de test d'IntelliJ échoue sur `libXext.so.6`.
 
 - Choix de la source des namespaces : `namespace` renseigné → aucun appel à `CustomObjectsApi` ; `null` → liste des projects (cas actuel).
 - Préremplissage : la valeur des settings passe avant celle du kubeconfig, et celle du kubeconfig avant le vide.
@@ -155,7 +179,7 @@ Les trois passent par le `Dialogs.error(...)` existant de `refreshAndWatchAllDev
 ## Risques
 
 - **Jeton qui expire pendant la session** (risque déjà présent aujourd'hui, pas introduit par cette RFC). Le client de l'assistant garde le jeton obtenu au clic sur Suivant. Quand il expire (durée de vie du jeton Authentik), les appels suivants (rafraîchir la liste, démarrer, arrêter) échouent avec un 401. Le port-forward déjà ouvert vers l'IDE n'est pas touché. Parade : revenir à l'étape serveur. Si c'est trop fréquent, construire le client avec `ClientBuilder.kubeconfig(...)`, qui relance l'`exec` à chaque expiration, dans une RFC suivante.
-- **`oidc-login` absent du PATH de Gateway** (déjà le cas pour le lien profond, pas introduit par cette RFC). Gateway lancé depuis le bureau n'a pas toujours le PATH du shell (macOS surtout). L'erreur de `getCredentials()` doit le dire, avec la commande attendue.
+- **`oidc-login` absent du PATH de Gateway** (déjà le cas pour le lien profond, pas introduit par cette RFC). Réduit pour l'assistant par l'environnement du shell de login. Gateway lancé depuis le bureau n'a pas toujours le PATH du shell (macOS surtout). L'erreur de `getCredentials()` doit le dire, avec la commande attendue.
 - **Refus upstream.** Le plugin est un produit Red Hat centré sur OpenShift Dev Spaces. Ils peuvent refuser un champ qui ne sert pas sur OpenShift. Le changement est petit et isolé : on le garde sur notre fork sans difficulté.
 - **Retard du fork.** Partir d'un fork ancien donnerait des conflits sur `DevSpacesWorkspacesStepView`. D'où le départ depuis l'upstream `main`.
 

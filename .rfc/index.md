@@ -8,5 +8,5 @@
 | che-code-02 | [RFC — Rendre les polices du conteneur dev utilisables dans VS Code (navigateur)](che-code-02/che-code-fonts-rfc.md) | En cours d'implémentation (`weebo-si/che-code`, `feat/container-fonts`) | 2026-10-07 |
 | forgejo-01 | [Implementation plan — Native Forgejo support in Eclipse Che gitServices](forgejo-01/forgejo-plan.md) | Draft | 2026-10-01 |
 | forgejo-01 | [RFC — Support natif de Forgejo dans les gitServices d'Eclipse Che / Dev Spaces](forgejo-01/forgejo-rfc.md) | Draft | 2026-09-30 |
-| jetbrains-01 | [RFC — Utiliser le plugin JetBrains Gateway sur un cluster Kubernetes (namespace saisi par l'utilisateur)](jetbrains-01/jetbrains-k8s-namespace-rfc.md) | Brouillon | 2026-10-07 |
+| jetbrains-01 | [RFC — Utiliser le plugin JetBrains Gateway sur un cluster Kubernetes (namespace saisi par l'utilisateur)](jetbrains-01/jetbrains-k8s-namespace-rfc.md) | En cours d'implémentation (`weebo-si/devspaces-gateway-plugin`, `feat/k8s-namespace`) | 2026-10-07 |
 | pvc-01 | [Spec: Workspace Storage tab (PVC status & resize) in Che Dashboard](pvc-01/implem-spec.md) | ? | 2026-10-01 |
