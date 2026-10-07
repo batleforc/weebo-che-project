@@ -115,6 +115,8 @@ Points de conception :
 - Une sortie `fc-list` simulée (regular, bold, italic, `.pcf.gz`, `.ttc`, famille multiple, nom avec guillemet) donne le CSS attendu.
 - `fc-list` absent : fichier vide, aucune exception.
 
+**Vérifié le 7 octobre 2026** (image `ghcr.io/weebo-si/che-code:sha-55a18ad`, devfile de ce repo, image `che-min-mise`) : `/checode/fonts.css` déclare 26 `@font-face`, soit FiraCode Nerd Font, FiraCode Nerd Font Mono et FiraCode Nerd Font Propo (6 fichiers chacune), plus DejaVu Sans, Sans Mono et Serif (8 fichiers, installés par `fonts-dejavu-core`). DejaVu est gardé : le navigateur ne télécharge que les polices affichées. Le launcher écrit le fichier environ 1 s avant que VS Code écoute.
+
 **Manuels, sur le cluster weebo-si, avec `WeeboDevImage`**
 
 1. `"terminal.integrated.fontFamily": "FiraCode Nerd Font"` sur un poste sans cette police : les glyphes Nerd Font s'affichent dans le terminal.

@@ -23,19 +23,7 @@ C'est le premier axe d'un travail plus large, qui vise un second boot VS Code so
 
 Le second boot VS Code ne profite presque pas du volume persistant. Le temps ne dépend pas du pull de l'image (1 min 36 s dans les deux cas).
 
-À relever avant l'implémentation, pour fixer la base et la cible de cette RFC :
-
-| Étape (second boot VS Code) | Durée |
-|---|---|
-| Pod `Scheduled` → init container démarré (attachement du PVC, etc.) | _à mesurer_ |
-| Durée de l'init container `che-code-injector` | _à mesurer_ |
-| Conteneur dev démarré → launcher terminé | _à mesurer_ |
-| Launcher terminé → IDE affiché dans le navigateur | _à mesurer_ |
-
-```sh
-kubectl get pod <pod> -o jsonpath='{range .status.initContainerStatuses[*]}{.name}{" "}{.state.terminated.startedAt}{" "}{.state.terminated.finishedAt}{"\n"}{end}'
-kubectl get events --field-selector involvedObject.name=<pod>
-```
+Les mesures détaillées par étape, avant et après cette RFC, sont dans la section [Mesures](#mesures). Au second boot, avec l'image upstream, l'init container prend 31 à 60 s selon sa limite mémoire, soit la majorité du temps de démarrage.
 
 ### Ce que fait l'init container aujourd'hui
 
@@ -193,8 +181,116 @@ Ce contrôle ne peut pas être un test Jest du launcher : ces tests ne tournent 
 5. Stratégie `ephemeral` : le démarrage fonctionne comme avant.
 6. Conteneur dev musl (Alpine) et ubi8 : l'IDE démarre, ce qui confirme que les fichiers patchés sont restaurés dans toutes les assemblies.
 
+## Mesures
+
+Relevées le 7 octobre 2026 sur le cluster weebo-si (un seul nœud, stockage `per-workspace` sur `local-path`), avec `scripts/measure-che-code-boot.sh --fresh` et le `devfile.yaml` de ce repo (image `che-min-mise`, 5 projets à cloner). Chaque premier boot part d'un workspace neuf, créé comme le fait le dashboard. Le second boot est un arrêt puis un redémarrage du même workspace. Images déjà en cache sur le nœud (pulls < 0,5 s). Une seule mesure par combinaison.
+
+- **Avant** : `quay.io/che-incubator/che-code:7.123.0` (upstream).
+- **Après** : `ghcr.io/weebo-si/che-code:sha-55a18ad` (`develop` sur `7.123.x`, avec cette RFC et che-code-02).
+- **Limite** : `memoryLimit` de `che-code-injector`. Les editor definitions upstream (che-operator 7.121.0 et 7.123.0) utilisent 256Mi.
+- **VS Code écoute** : `curl http://127.0.0.1:3100/` répond 200 dans le pod. **URL** : `<mainUrl>healthz` répond 200 depuis l'extérieur (ingress, passerelle Che, passerelle du pod). Le chargement du workbench dans le navigateur n'est pas compté.
+
+Durées en secondes depuis la création (premier boot) ou le redémarrage (second boot) du workspace :
+
+| Image | Limite | Boot | `project-clone` | `che-code-injector` | VS Code écoute | URL accessible |
+|---|---|---|---|---|---|---|
+| Avant | 256Mi | premier | — | **OOMKilled** | échec | échec |
+| Avant | 512Mi | premier | 159 | 28 | 202 | 202 |
+| Avant | 512Mi | second | 0 | 38 | 48 | 48 |
+| Avant | 1Gi | premier | 149 | 22 | 192 | 192 |
+| Avant | 1Gi | second | 0 | 33 | 43 | 43 |
+| Avant | 2Gi | premier | 160 | 24 | 205 | 222 |
+| Avant | 2Gi | second | 0 | 31 | 40 | 40 |
+| Après | 256Mi | premier | — | **OOMKilled** | échec | échec |
+| Après | 512Mi | premier | 150 | 24 | 192 | 192 |
+| Après | 512Mi | second | 0 | **0** | **10** | **10** |
+| Après | 1Gi | premier | 151 | 25 | 193 | 193 |
+| Après | 1Gi | second | 0 | **0** | **9** | **9** |
+| Après | 2Gi | premier | 163 | 21 | 206 | 221 |
+| Après | 2Gi | second | 0 | **0** | **9** | **9** |
+
+`init-persistent-home` prend 0 s dans tous les cas.
+
+Décomposition étape par étape à 1Gi (secondes ; la somme de chaque colonne donne le total) :
+
+| Étape | Avant, premier | Avant, second | Après, premier | Après, second |
+|---|---|---|---|---|
+| Création ou démarrage du DevWorkspace → pod planifié (DevWorkspace Operator, création du PVC au premier boot) | 7 | 0 | 5 | 0 |
+| Pod planifié → `project-clone` démarre (montage du volume) | 3 | 2 | 2 | 2 |
+| `project-clone` | 149 | 0 | 151 | 0 |
+| `init-persistent-home` et transitions entre init containers | 2 | 2 | 3 | 2 |
+| `che-code-injector` | 22 | 33 | 25 | **0** |
+| Fin des init containers → conteneurs démarrés | 5 | 2 | 2 | 3 |
+| Conteneurs démarrés → VS Code écoute (launcher puis serveur VS Code) | 4 | 4 | 5 | 2 |
+| VS Code écoute → URL accessible (routage) | 0 | 0 | 0 | 0 |
+| **Total** | **192** | **43** | **193** | **9** |
+
+Le démarrage de l'IDE proprement dit (conteneurs démarrés → VS Code écoute) prend 2 à 5 s, dont 1 à 3 s pour le launcher (patchs, `fonts.css`) et 1 à 2 s pour le serveur VS Code. Au second boot, `project-clone` constate en moins d'une seconde que les projets sont déjà clonés : il ouvre chaque dépôt et vérifie ses remotes, sans accès réseau. Il n'y a rien à gagner de ce côté.
+
+### Temps de clone (hors du périmètre de cette RFC)
+
+Le premier boot passe 150 s dans `project-clone`. Ce que fait DevWorkspace Operator v0.43 (`project-clone/internal`) :
+
+- un `git clone` complet par projet, l'un après l'autre, sans `--depth` ni `--filter`, puis un `git fetch` par remote supplémentaire ;
+- le clone se fait dans `/projects/project-clone-*` puis est déplacé par `os.Rename`, sans copie ;
+- le conteneur est limité par défaut à **1 CPU** et 1Gi.
+
+Les mêmes clones, faits le même jour depuis un pod du même nœud sans limite CPU (6,5 CPU) :
+
+| Dépôt | Taille | Clone complet | `--filter=blob:none` | `--depth 1` |
+|---|---|---|---|---|
+| `weebo-si/che-code` | 688 Mo | 66 s | 30 s | 13 s |
+| remote `batleforc/che-code` (fetch) | 686 Mo | 0 s (objets déjà là) | | |
+| `che-incubator/jetbrains-ide-dev-server` | 170 Mo | 7 s | | 5 s |
+| `weebo-si/che-dashboard` | 27 Mo | 3 s | | |
+| `batleforc/eclipse-che-gateway-plugin`, `batleforc/weebo-che-project` | < 2 Mo | 1 s | | |
+
+Soit environ 77 s sans limite CPU, contre 150 s dans `project-clone`. La limite de 1 CPU semble expliquer la moitié du temps : la résolution des deltas de `git` est gourmande en CPU. Le dépôt `che-code` représente à lui seul 85 % du temps de clone.
+
+Pistes, à mesurer dans une RFC dédiée :
+
+1. **Monter le CPU de `project-clone`** : `spec.devEnvironments.projectCloneContainer.resources.limits.cpu` dans le CheCluster (che-operator le reporte dans `devworkspace-config`). C'est un réglage du cluster, sans code. Gain estimé : jusqu'à la moitié du clone, non mesuré.
+2. **Sortir les gros dépôts des `projects` du devfile** et les cloner en arrière-plan (commande `postStart`, `git clone --filter=blob:none`) : l'IDE est disponible en moins d'une minute au premier boot, le code arrive pendant que le développeur s'installe. En contrepartie, DevWorkspace Operator ne gère plus ces dépôts (remotes, `checkoutFrom`, reclonage au redémarrage).
+3. **Clone partiel ou superficiel dans DevWorkspace Operator** : `project-clone` ne propose ni `--depth` ni `--filter` (seulement `sparseCheckout`, qui réduit les fichiers extraits mais pas l'historique téléchargé). Une option `depth` ou `filter` demanderait une contribution à `devfile/devworkspace-operator`.
+
+Référence au même endroit, mesurée le même jour sur un workspace existant (`weebo-dev-setup`, volume déjà rempli) avec l'image en production `che-code:7.121.0` à 256Mi : `che-code-injector` 60 s, VS Code écoute à 73 s.
+
+Constats :
+
+- **Second boot : de 40-48 s à 9-10 s.** L'init container passe de 31-38 s à 0 s (ses logs affichent `already on the volume, restoring patched files`). La cible de 40 s est atteinte jusqu'au serveur VS Code, quelle que soit la limite mémoire au-delà de 256Mi.
+- **Premier boot : inchangé, environ 3 min 15.** Il est dominé par le clone des projets (150-163 s, dont le repo `che-code`). La copie de l'injector prend 21-28 s, comme avant : cette RFC ne la ralentit pas.
+- **256Mi : le premier boot échoue, avant comme après.** Voir [Risques](#risques).
+- **La limite mémoire ralentit la copie.** Upstream, l'injector met 60 s à 256Mi (volume existant), 31-38 s à 512Mi et plus. Au-delà de 512Mi, aucun gain mesurable.
+- **Écart URL / VS Code.** Dans les deux runs à 2Gi, l'URL n'a répondu que 15-17 s après VS Code, au moment où le DevWorkspace passe `Ready`. Dans les autres runs, les deux sont simultanés. Écart lié à la réconciliation de DevWorkspace Operator, pas à che-code.
+
+### Reproduire les mesures
+
+`scripts/measure-che-code-boot.sh` ne dépend pas de ce cluster. Prérequis :
+
+- Linux avec les outils GNU (`date -d`, `sort -s`), `kubectl`, `jq`, `yq` (mikefarah v4) et `curl`. Le plus simple est de le lancer depuis un workspace Che.
+- Un kubeconfig qui peut créer `devworkspaces` et `devworkspacetemplates`, faire `exec` et lire les logs et les events dans le namespace utilisateur.
+- `curl` dans le premier conteneur du devfile (présent dans l'UDI et dans `che-min-mise`).
+- L'URL des workspaces (`<mainUrl>healthz`) doit être joignable depuis l'endroit où le script tourne.
+- Une editor definition dont l'image est accessible depuis ce cluster : `deploy/develop/che-code-editor.yaml` par défaut, ou un fichier `editors-definitions/*.yaml` de che-operator.
+- `CHE_NAMESPACE` si Che n'est pas dans `eclipse-che`. `STORAGE_TYPE` si le compte ne peut pas lire le CheCluster, sinon le script prend `per-user`, ce qui ne correspond pas forcément à ce que fait le dashboard.
+
+Matrice de ce document :
+
+```sh
+for image in ghcr.io/weebo-si/che-code:sha-55a18ad quay.io/che-incubator/che-code:7.123.0; do
+  for mem in 256Mi 512Mi 1Gi 2Gi; do
+    EDITOR_IMAGE=$image EDITOR_MEMORY=$mem TIMEOUT=900 \
+      scripts/measure-che-code-boot.sh --fresh <namespace> devfile.yaml > "boot-${image##*:}-$mem.log" 2>&1
+    grep RESULT "boot-${image##*:}-$mem.log"
+  done
+done
+```
+
+Chaque run crée puis supprime son propre workspace. Les mesures sont séquentielles : lancées en parallèle sur un même nœud, elles se ralentiraient entre elles.
+
 ## Risques
 
+- **OOM de l'injector au premier boot avec la limite upstream de 256Mi.** Sur ce cluster, la copie des 2,7 Go des trois assemblies dans un volume vide est tuée (`OOMKilled`) à 256Mi avec `che-code:7.123.0`, `che-code:next` et nos images, mais pas avec `che-code:7.121.0`, présente sur le nœud depuis des semaines. Le contenu (taille, nombre de fichiers), le script et `cp` sont les mêmes. La mémoire consommée est du cache de pages (fichiers lus et écrits), pas de la mémoire de processus. Hypothèse, non prouvée faute d'un second nœud : le cache des fichiers d'une image déjà lue est compté dans un autre cgroup. Ce problème est upstream et indépendant de cette RFC, mais il bloquera la création de workspaces VS Code au passage à Che 7.123. Mitigation : 512Mi suffisent dans nos mesures, 1Gi laisse de la marge. Copier une seule assembly (non-objectif ci-dessus) diviserait aussi la quantité copiée par trois. À reproduire sur un cluster à plusieurs nœuds, puis à remonter à `che-incubator/che-code`.
 - **Changement d'UID entre deux boots.** Si l'UID du pod change (namespace recréé, `securityContext` modifié), `rm` et `cp` sur des fichiers existants peuvent échouer. Avec `set -e`, l'init container échoue de façon visible au lieu de démarrer sur un contenu à moitié copié. Le problème existe déjà aujourd'hui avec `cp` sur des fichiers existants. À vérifier sur OpenShift et sur Kubernetes vanilla.
 - **Volume partagé.** Le design suppose un volume `checode` propre à chaque workspace (subpath par workspace avec `per-user`). À confirmer dans DevWorkspace Operator. Si deux workspaces partageaient le même chemin, deux copies simultanées pourraient s'entremêler.
 - **Fichier patché oublié.** Couvert par le contrôle au build de l'assembly, à condition que les futurs patchs passent par `files.ts`.
@@ -202,7 +298,7 @@ Ce contrôle ne peut pas être un test Jest du launcher : ces tests ne tournent 
 ## Plan de livraison
 
 1. Créer le fork `weebo-si/che-code`. Il est déjà déclaré dans `forks.yaml`, avec `feat/init-copy-cache` mergée dans `develop`.
-2. Relever les mesures manquantes de la section Contexte sur l'image actuelle.
+2. ~~Relever les mesures manquantes de la section Contexte sur l'image actuelle.~~ Fait, voir [Mesures](#mesures).
 3. Implémenter sur `feat/init-copy-cache` (Dockerfile, script, test), avec `Signed-off-by` sur chaque commit.
 4. Construire l'image depuis `develop` poussée sur le fork public, déployer sur le cluster weebo-si, dérouler les tests manuels et remesurer le second boot complet par rapport à la cible de 40 s.
 5. Ouvrir la PR upstream vers `che-incubator/che-code` avec les mesures avant/après.
@@ -224,6 +320,6 @@ Ce contrôle ne peut pas être un test Jest du launcher : ces tests ne tournent 
 
 ## Questions ouvertes
 
-- Quelle est la durée réelle de l'init container aujourd'hui, et combien de temps reste-t-il après lui ? (Mesures de la section Contexte, à relever avant l'étape 3.)
 - Le volume `checode` est-il bien propre à chaque workspace avec toutes les stratégies de stockage ?
-- Quelle part du temps restant revient au launcher et au serveur VS Code ? Si cette RFC ne suffit pas à passer sous les 40 s, cette part orientera les prochaines RFC.
+- Combien de temps prend le chargement du workbench dans le navigateur après le 200 de l'URL ? C'est la seule étape du second boot que le script ne mesure pas.
+- L'OOM à 256Mi se reproduit-il sur un nœud neuf avec `che-code:7.121.0` (voir [Risques](#risques)) ?
