@@ -8,6 +8,7 @@ built by [weebo-si/che-images](https://github.com/weebo-si/che-images):
 | che-operator | `ghcr.io/weebo-si/che-operator:develop` | `spec.gitServices.forgejo`, OAuth secret mounting |
 | che-server | `ghcr.io/weebo-si/che-server:develop` | Forgejo factory, OAuth and PAT modules |
 | che-dashboard | `ghcr.io/weebo-si/che-dashboard:develop` | Forgejo provider + workspace Storage tab |
+| che-code | `ghcr.io/weebo-si/che-code:sha-725f14b` | Conditional copy in the init container (RFC che-code-01), container fonts in the browser (RFC che-code-02) |
 
 ## Apply order
 
@@ -26,6 +27,32 @@ built by [weebo-si/che-images](https://github.com/weebo-si/che-images):
 5. **CheCluster** (`checluster.yaml`), through the `che-app` ArgoCD application.
 
 The operator reconciles the che and che-dashboard Deployments with the images set in the CheCluster.
+
+## che-code editor
+
+che-code is not part of the CheCluster: `che-code-editor.yaml` is an editor definition in a
+ConfigMap, listed by the dashboard next to the built-in editors. It does not replace them.
+
+```bash
+kubectl apply -f che-code-editor.yaml
+```
+
+Pick **VS Code - Open Source (weebo-si develop)** in the dashboard editor selector, or start a
+workspace with `https://cde.batleforc.fr/#<repo url>?che-editor=weebo-si/che-code/develop`.
+
+The image is pinned to `sha-<short>` of the `develop` commit: the init container reuses the volume
+when the image does not change, so a moving tag would hide a new build. Update the tag after each
+rebuild of `develop`.
+
+Testing the container fonts (RFC che-code-02), with the `che-min-mise` image (FiraCode Nerd Font):
+
+1. On a machine without FiraCode Nerd Font, set
+   `"terminal.integrated.fontFamily": "FiraCode Nerd Font"` and `"editor.fontFamily": "FiraCode Nerd Font"`.
+2. The Nerd Font glyphs show in the terminal, ligatures, bold and italic in the editor, with no
+   cursor or spacing offset.
+3. The browser network tab only downloads the rendered weights; a reload gets `304`.
+4. `cat /checode/fonts.css` in the dev container lists the fonts, and `/checode/entrypoint-logs.txt`
+   shows `fonts declared`.
 
 ## Known limits of `develop`
 
