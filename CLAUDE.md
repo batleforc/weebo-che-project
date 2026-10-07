@@ -33,6 +33,9 @@ as a requirement, not a detail. When in doubt, stop and ask instead of guessing.
   repo under another license (e.g. copying Che code into `che-images` or a closed-source product).
 - **New dependencies**: check the license first. EPL-2.0, Apache-2.0, MIT, BSD and ISC are fine.
   Flag GPL, AGPL, SSPL, BUSL, "non-commercial" and unlicensed code to the user before adding them.
+  CDDL-1.1 is accepted for unmodified transitive dependencies, when the distributed artifact
+  ships its license and a link to its source (decided 2026-10-07, `javax.annotation-api` in the
+  Gateway plugin). Never modify CDDL files, and flag a direct CDDL dependency.
   In `che-dashboard`, run `yarn license:generate` and commit the regenerated `.deps/` files. Che
   upstream also requires Eclipse Foundation (ClearlyDefined/IP) approval for new dependencies.
 - **Images**: keep the `org.opencontainers.image.source`, `.revision` and `.licenses` labels in
