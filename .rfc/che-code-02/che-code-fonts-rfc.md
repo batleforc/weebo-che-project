@@ -1,6 +1,6 @@
 # RFC — Rendre les polices du conteneur dev utilisables dans VS Code (navigateur)
 
-Oct 7, 2026 · @Maxime · Statut : Draft
+Oct 7, 2026 · @Maxime · Statut : En cours d'implémentation (`weebo-si/che-code`, `feat/container-fonts`)
 
 ## Résumé
 
@@ -128,6 +128,7 @@ Points de conception :
 - **Mesure des polices par l'éditeur.** Monaco mesure la police au démarrage (`fontMeasurements.ts`) et ne remesure pas quand une police web finit de charger. Si la police arrive après la mesure, l'espacement et le curseur peuvent être décalés jusqu'au prochain changement de police ou de zoom. À vérifier au test 2. Si le problème se présente : dans `code/src/vs/code/browser/workbench/che/`, attendre `document.fonts.load()` des familles configurées avant de créer le workbench, ou appeler `FontMeasurements.clearAllFontInfos()` sur l'événement `loadingdone` de `document.fonts`.
 - **Terminal.** xterm.js mesure aussi sa police à l'ouverture. Même vérification au test 1.
 - **Durée de `fc-list`.** Rapide quand le cache `fontconfig` est construit dans l'image (`fc-cache` au build). Sans cache, `fc-list` rescanne les polices à chaque boot. À mesurer sur une image avec beaucoup de polices. Le launcher peut borner l'appel par un timeout de quelques secondes.
+- **Type MIME des polices.** `/vscode-remote-resource` sert les `.ttf` en `text/plain`, sans `X-Content-Type-Options: nosniff`. Les navigateurs ne contrôlent pas le type MIME des polices, et `fonts.css` est bien servi en `text/css` (vérifié sur le serveur d'un workspace). À confirmer aux tests 1 et 2.
 - **Exposition de fichiers.** Aucune nouvelle exposition : `/vscode-remote-resource` sert déjà tout fichier lisible, et `fonts.css` ne fait que lister des chemins de polices.
 
 ## Plan de livraison
@@ -141,7 +142,7 @@ Points de conception :
 ## Licences
 
 - `che-code` est sous EPL-2.0. `main.ts`, `workbench.html` et la règle de rebase gardent leur licence et leur en-tête. `workbench.html` vient de VS Code (MIT, en-tête Microsoft) : on ne touche pas à son en-tête.
-- **En-tête de `fonts.ts`** : les fichiers du launcher portent `Copyright (c) <année> Red Hat, Inc.` et che-code n'a pas de modèle vérifié par un outil. Mettre « Red Hat » sur un fichier écrit par weebo-si n'est pas exact, et le CLAUDE.md interdit d'ajouter une attribution weebo-si sans décision. **À trancher avant l'implémentation** (voir Questions ouvertes).
+- **En-tête de `fonts.ts` et `fonts.spec.ts`** : en-tête EPL-2.0 du launcher avec `Copyright (c) 2026 Contributors to the Eclipse Foundation` (décision du 2026-10-07, consignée dans le CLAUDE.md). Pas `Red Hat, Inc.`, qui n'a pas écrit ce code, ni de ligne weebo-si.
 - Aucune nouvelle dépendance : `fc-list` vient de l'image du conteneur dev, si elle l'a.
 - **Licences des polices.** Les polices ne sont pas redistribuées par che-code : elles restent dans l'image de l'utilisateur et sont servies à son propre navigateur. Pour nos images qui embarquent des polices (`WeeboDevImage`), leur licence doit autoriser la redistribution et l'usage web : FiraCode et Nerd Fonts (OFL-1.1, MIT) et DejaVu le permettent. Une police commerciale ajoutée plus tard devra être vérifiée.
 - Une image che-code donnée à un client ou publiée doit être construite depuis un commit poussé sur le fork public `weebo-si/che-code` (EPL-2.0 §3.2).
@@ -157,6 +158,5 @@ Points de conception :
 
 ## Questions ouvertes
 
-- Quel en-tête de copyright pour `fonts.ts` (Red Hat comme les autres fichiers du launcher, ou une ligne weebo-si à décider et à reporter dans le CLAUDE.md) ?
 - Faut-il une variable d'environnement pour désactiver la fonctionnalité (ou limiter les dossiers scannés), ou est-ce inutile tant que le coût mesuré reste négligeable ?
 - Le problème de mesure de Monaco et de xterm.js se produit-il en pratique (tests 1 et 2) ?

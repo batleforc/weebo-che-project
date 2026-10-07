@@ -26,6 +26,9 @@ as a requirement, not a detail. When in doubt, stop and ask instead of guessing.
   `.config/copyright.js`). The checkers are strict: any extra line, including a weebo-si
   contributor line, fails `mvn validate` and ESLint `notice/notice`. Don't add attribution to
   headers until a decision is recorded here.
+- **`che-code`** has no header checker. New files written by weebo-si use the launcher header
+  with `Copyright (c) <year> Contributors to the Eclipse Foundation` (decided 2026-10-07), never
+  `Red Hat, Inc.` (not their code) nor a weebo-si line.
 - **Modified files** keep their license. Never relicense EPL code, and never move EPL code into a
   repo under another license (e.g. copying Che code into `che-images` or a closed-source product).
 - **New dependencies**: check the license first. EPL-2.0, Apache-2.0, MIT, BSD and ISC are fine.

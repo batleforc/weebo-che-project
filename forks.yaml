@@ -53,6 +53,7 @@ forks:
     develop:
       merge:
         - feat/init-copy-cache
+        - feat/container-fonts
 
   che-docs:
     develop:
