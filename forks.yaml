@@ -71,3 +71,5 @@ forks:
     develop:
       merge:
         - { branch: feat/k8s-namespace, rfc: jetbrains-01 }
+        # Own plugin ID, name and vendor for the builds we distribute (che-images). Never upstream
+        - chore/weebo-branding
