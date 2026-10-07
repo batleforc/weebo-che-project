@@ -8,7 +8,7 @@ built by [weebo-si/che-images](https://github.com/weebo-si/che-images):
 | che-operator | `ghcr.io/weebo-si/che-operator:develop` | `spec.gitServices.forgejo`, OAuth secret mounting |
 | che-server | `ghcr.io/weebo-si/che-server:develop` | Forgejo factory, OAuth and PAT modules |
 | che-dashboard | `ghcr.io/weebo-si/che-dashboard:develop` | Forgejo provider + workspace Storage tab |
-| che-code | `ghcr.io/weebo-si/che-code:sha-725f14b` | Conditional copy in the init container (RFC che-code-01), container fonts in the browser (RFC che-code-02) |
+| che-code | `ghcr.io/weebo-si/che-code:sha-55a18ad` | Based on 7.123.x. Conditional copy in the init container (RFC che-code-01), container fonts in the browser (RFC che-code-02) |
 
 ## Apply order
 

@@ -50,7 +50,11 @@ forks:
 
   che-code:
     upstreamOrg: che-incubator
+    # develop follows the latest stable release branch. The merge entries are based on the common
+    # ancestor of main and that branch, so they merge in both (develop here, upstream PRs on main).
+    sync: [main, 7.123.x]
     develop:
+      base: 7.123.x
       merge:
         - feat/init-copy-cache
         - feat/container-fonts

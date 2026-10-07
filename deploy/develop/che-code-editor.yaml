@@ -101,7 +101,7 @@ data:
     components:
       - name: che-code-injector
         container:
-          image: ghcr.io/weebo-si/che-code:sha-725f14b
+          image: ghcr.io/weebo-si/che-code:sha-55a18ad
           command:
             - /entrypoint-init-container.sh
           volumeMounts:
