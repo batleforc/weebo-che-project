@@ -64,3 +64,8 @@ forks:
   che-docs:
     develop:
       enabled: false
+
+  # JetBrains Gateway plugin. Add `{ branch: feat/k8s-namespace, rfc: jetbrains-01 }` to
+  # develop.merge once it is pushed.
+  devspaces-gateway-plugin:
+    upstreamOrg: redhat-developer
