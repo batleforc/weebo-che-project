@@ -10,3 +10,14 @@ tasks:
   init:
     cmds:
       - ln mise.toml /projects/mise.toml
+      - task: hooks
+
+  hooks:
+    desc: "Use the repo git hooks (.githooks)"
+    cmds:
+      - git config core.hooksPath .githooks
+
+  rfc:index:
+    desc: "Regenerate .rfc/index.md"
+    cmds:
+      - scripts/rfc-index.sh

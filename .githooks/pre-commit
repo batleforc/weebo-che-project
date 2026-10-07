@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Keeps .rfc/index.md in sync with the RFCs being committed.
+set -euo pipefail
+
+if git diff --cached --name-only | grep -q '^\.rfc/.*\.md$'; then
+  scripts/rfc-index.sh
+  git add .rfc/index.md
+fi
