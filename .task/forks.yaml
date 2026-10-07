@@ -2,12 +2,16 @@ version: '3'
 
 vars:
   ORG: weebo-si # override: task forks ORG=other-org
-  UPSTREAM_ORG: eclipse-che
   BRANCH: feat/forgejo-gitservice
   PUSH: '{{.PUSH | default "false"}}'
   SIGN: '{{.SIGN | default ""}}'
   REPOS:
     sh: yq -r '.forks | keys | join(" ")' forks.yaml
+  # Forks whose develop merges {{.BRANCH}}: the only ones that get the branch
+  BRANCH_REPOS:
+    sh: yq -r '[.forks | to_entries[] | select((.value.develop.merge // []) | map(.branch // .) | contains(["{{.BRANCH}}"])) | .key] | join(" ")' forks.yaml
+  # Upstream org of a fork, as in forks.yaml (upstreamOrg, default from defaults)
+  UPSTREAM_OF: upstream_of() { yq -r ".forks[\"$1\"].upstreamOrg // .defaults.upstreamOrg" forks.yaml; }
 
 tasks:
   default:
@@ -33,21 +37,22 @@ tasks:
     deps: [check]
     cmds:
       - |
+        {{.UPSTREAM_OF}}
         for repo in {{.REPOS}}; do
           if gh api "repos/{{.ORG}}/$repo" >/dev/null 2>&1; then
             echo "✔ {{.ORG}}/$repo already exists"
           else
-            gh repo fork "{{.UPSTREAM_ORG}}/$repo" --org "{{.ORG}}" --clone=false --default-branch-only
+            gh repo fork "$(upstream_of "$repo")/$repo" --org "{{.ORG}}" --clone=false --default-branch-only
             echo "✚ {{.ORG}}/$repo forked"
           fi
         done
 
   branch:
-    desc: "Create {{.BRANCH}} on each fork from its default branch (idempotent)"
+    desc: "Create {{.BRANCH}} from the default branch on each fork that merges it in forks.yaml (idempotent)"
     deps: [check]
     cmds:
       - |
-        for repo in {{.REPOS}}; do
+        for repo in {{.BRANCH_REPOS}}; do
           # A fresh fork can take a few seconds to be ready
           for i in 1 2 3 4 5; do gh api "repos/{{.ORG}}/$repo" >/dev/null 2>&1 && break; sleep 3; done
           if gh api "repos/{{.ORG}}/$repo/branches/{{.BRANCH}}" >/dev/null 2>&1; then
@@ -89,9 +94,10 @@ tasks:
     deps: [check]
     cmds:
       - |
+        {{.UPSTREAM_OF}}
         for repo in {{.REPOS}}; do
           default=$(gh api "repos/{{.ORG}}/$repo" --jq .default_branch 2>/dev/null) || { echo "✘ {{.ORG}}/$repo missing"; continue; }
-          behind=$(gh api "repos/{{.ORG}}/$repo/compare/{{.UPSTREAM_ORG}}:$default...$default" --jq .behind_by 2>/dev/null || echo "?")
+          behind=$(gh api "repos/{{.ORG}}/$repo/compare/$(upstream_of "$repo"):$default...$default" --jq .behind_by 2>/dev/null || echo "?")
           has_branch=$(gh api "repos/{{.ORG}}/$repo/branches/{{.BRANCH}}" >/dev/null 2>&1 && echo yes || echo no)
           printf '%-16s default=%-6s behind_upstream=%-4s %s=%s\n' "$repo" "$default" "$behind" "{{.BRANCH}}" "$has_branch"
         done
