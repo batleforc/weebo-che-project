@@ -1,6 +1,6 @@
 # RFC — Accélérer le démarrage de che-code : copie conditionnelle dans l'init container
 
-Oct 6, 2026 · @Maxime · Statut : Draft
+Oct 6, 2026 · @Maxime · Statut : Implémentée (`weebo-si/che-code`, `develop`), PR upstream à ouvrir
 
 ## Résumé
 

@@ -3,6 +3,7 @@
 - **Issue**: https://github.com/eclipse-che/che/issues/23934
 - **Repos**: `eclipse-che/che-dashboard` (main work), `eclipse-che/che-operator` (RBAC only)
 - **Author**: batleforc
+- **Status**: Implemented (`weebo-si/che-dashboard`, `develop`), manual validation and upstream PRs pending
 
 ## 1. Goal
 
