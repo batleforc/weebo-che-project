@@ -3,6 +3,7 @@
 ## Global
 
 - [ ] Regarder pourquoi on ce retrouver avec 15 réplica du dashboard --'
+- [ ] Feature weebo-si only pour customiser le dashboard ?
 
 
 ## Che-Code
