@@ -11,6 +11,9 @@
 # editor from it. New workspace id, so new storage (empty /checode, fresh clone of the projects,
 # empty home). Measures the first boot, restarts it to measure a second boot, then deletes both
 # (a per-workspace PVC goes with them; with per-user storage, the operator cleans the subpath).
+# With UPDATE_IMAGE, a third boot measures an IDE update: the workspace is stopped, the
+# che-code-injector image of its DevWorkspaceTemplate is replaced, and it is started again on the
+# volume filled by the previous image (what happens when Che moves to a new che-code release).
 # The editor definition is a devfile (che-operator editors-definitions/*.yaml) or a ConfigMap
 # holding one (default: deploy/develop/che-code-editor.yaml).
 # The node image cache can't be cleared from here: check the pull times in the report.
@@ -27,6 +30,7 @@
 #      CHE_NAMESPACE  namespace of the CheCluster (default: eclipse-che)
 #      STORAGE_TYPE   per-user, per-workspace or ephemeral (default: the CheCluster pvcStrategy if
 #                     readable, else per-user)
+#      UPDATE_IMAGE   che-code image to update to after the second boot, then measure a third boot
 #      KEEP=true      keep the workspace instead of deleting it
 
 set -euo pipefail
@@ -38,7 +42,7 @@ ns=${1:?$usage}
 timeout=${TIMEOUT:-600}
 
 # Starts $dw (already stopped or just created, start time $t0) and prints the boot report.
-# $boot labels the RESULT line (first, second or restart).
+# $boot labels the RESULT line (first, second, update or restart).
 measure() {
   local id selector deadline pod="" container="" url="" listening="" reachable="" code phase
   id=""
@@ -207,4 +211,16 @@ measure
 echo
 echo "=== Second boot ==="
 boot=second
+restart
+
+[ -n "${UPDATE_IMAGE:-}" ] || exit 0
+echo
+echo "=== Update boot ==="
+boot=update
+stop
+idx=$(kubectl get dwt "$template" -n "$ns" -o json | jq '.spec.components | map(.name) | index("che-code-injector")')
+kubectl patch dwt "$template" -n "$ns" --type json \
+  -p "[{\"op\":\"replace\",\"path\":\"/spec/components/$idx/container/image\",\"value\":\"$UPDATE_IMAGE\"}]" >/dev/null
+echo "Updated che-code-injector to $UPDATE_IMAGE"
+EDITOR_IMAGE=$UPDATE_IMAGE
 restart

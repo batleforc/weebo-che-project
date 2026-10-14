@@ -263,6 +263,29 @@ Constats :
 - **La limite mémoire ralentit la copie.** Upstream, l'injector met 60 s à 256Mi (volume existant), 31-38 s à 512Mi et plus. Au-delà de 512Mi, aucun gain mesurable.
 - **Écart URL / VS Code.** Dans les deux runs à 2Gi, l'URL n'a répondu que 15-17 s après VS Code, au moment où le DevWorkspace passe `Ready`. Dans les autres runs, les deux sont simultanés. Écart lié à la réconciliation de DevWorkspace Operator, pas à che-code.
 
+### Mise à jour de l'IDE
+
+Relevées le 14 octobre 2026, même cluster et même devfile, limite 1Gi, avec `UPDATE_IMAGE` (voir plus bas) : premier boot, second boot, puis le workspace est arrêté, l'image de `che-code-injector` de son DevWorkspaceTemplate est remplacée, et il est redémarré sur le volume rempli par l'image précédente. C'est ce que vivent les workspaces existants quand Che passe à une nouvelle release de che-code. Images en cache sur le nœud (pulls < 1 s), le pull d'une nouvelle release n'est donc pas compté. Une seule mesure par scénario.
+
+- **Avant** : `quay.io/che-incubator/che-code:7.121.0` → `7.123.0` (upstream).
+- **Après** : `ghcr.io/weebo-si/che-code:sha-55a18ad` → `sha-725f14b` (deux builds de `develop` avec des clés de version différentes).
+
+| Scénario | Boot | `project-clone` | `che-code-injector` | VS Code écoute | URL joignable |
+|---|---|---|---|---|---|
+| Avant | premier | 157 | 68 | 248 | 248 |
+| Avant | second | 1 | 93 | 104 | 104 |
+| Avant | mise à jour | 1 | 88 | 98 | 98 |
+| Après | premier | 157 | 40 | 216 | 240 |
+| Après | second | 0 | **0** | **9** | **10** |
+| Après | mise à jour | 0 | 64 | 77 | 77 |
+
+Constats :
+
+- **La mise à jour est le boot coûteux de cette RFC.** Les logs de l'injector affichent `Copying checode <nouvelle clé>` : la clé a changé, la copie complète est refaite, comme prévu (objectif 3). Elle coûte à peu près un boot upstream (77 s contre 98-104 s), une fois par workspace et par release.
+- **La copie de mise à jour est plus lente que la première copie (64 s contre 40 s).** Elle supprime d'abord les 2,7 Go de la version précédente (`rm -rf /checode/checode-*`), puis copie dans un volume non vide. Piste, non mesurée : renommer les anciens répertoires et les supprimer après la copie, ou ne copier que l'assembly utilisée (non-objectif plus haut).
+- **Le cluster était plus lent que le 7 octobre.** L'injector upstream a pris 88-93 s à 1Gi, contre 31-38 s une semaine plus tôt. Comparer les scénarios du même jour entre eux, pas avec le tableau principal.
+- Une première tentative du scénario « après » a échoué : `sha-55a18ad` n'était plus sur le nœud, son pull (79 s) plus le clone ont dépassé le timeout de progression de 300 s de DevWorkspace Operator. La seconde tentative, image en cache, est celle ci-dessus.
+
 ### Reproduire les mesures
 
 `scripts/measure-che-code-boot.sh` ne dépend pas de ce cluster. Prérequis :
@@ -284,6 +307,15 @@ for image in ghcr.io/weebo-si/che-code:sha-55a18ad quay.io/che-incubator/che-cod
     grep RESULT "boot-${image##*:}-$mem.log"
   done
 done
+```
+
+Scénarios de mise à jour (`UPDATE_IMAGE` ajoute un troisième boot sur la nouvelle image) :
+
+```sh
+EDITOR_IMAGE=quay.io/che-incubator/che-code:7.121.0 UPDATE_IMAGE=quay.io/che-incubator/che-code:7.123.0 \
+  EDITOR_MEMORY=1Gi TIMEOUT=900 scripts/measure-che-code-boot.sh --fresh <namespace> devfile.yaml
+EDITOR_IMAGE=ghcr.io/weebo-si/che-code:sha-55a18ad UPDATE_IMAGE=ghcr.io/weebo-si/che-code:sha-725f14b \
+  EDITOR_MEMORY=1Gi TIMEOUT=900 scripts/measure-che-code-boot.sh --fresh <namespace> devfile.yaml
 ```
 
 Chaque run crée puis supprime son propre workspace. Les mesures sont séquentielles : lancées en parallèle sur un même nœud, elles se ralentiraient entre elles.
