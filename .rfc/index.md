@@ -5,7 +5,7 @@
 | Dossier | Document | Statut | Date |
 |---|---|---|---|
 | che-code-01 | [RFC — Speed up che-code startup: conditional copy in the init container](che-code-01/che-code-startup-rfc.en.md) | ? | 2026-10-06 |
-| che-code-01 | [RFC — Accélérer le démarrage de che-code : copie conditionnelle dans l'init container](che-code-01/che-code-startup-rfc.md) | Implémentée (`weebo-si/che-code`, `develop`), PR upstream à ouvrir | 2026-10-06 |
+| che-code-01 | [RFC — Accélérer le démarrage de che-code : copie conditionnelle dans l'init container](che-code-01/che-code-startup-rfc.md) | Implémentée (`weebo-si/che-code`, `develop`), révisée après review le 16 oct. 2026 (restauration déplacée dans le launcher, implémentée dans `a0ee3d3`, tests manuels 1, 2 et 6 à refaire), PR upstream ouverte | 2026-10-06 |
 | che-code-02 | [RFC — Rendre les polices du conteneur dev utilisables dans VS Code (navigateur)](che-code-02/che-code-fonts-rfc.md) | En cours d'implémentation (`weebo-si/che-code`, `feat/container-fonts`) | 2026-10-07 |
 | che-code-03 | [RFC — Exécuter che-code avec le Node.js de l'image de dev](che-code-03/che-code-external-node-rfc.md) | Draft | 2026-10-13 |
 | forgejo-01 | [Implementation plan — Native Forgejo support in Eclipse Che gitServices](forgejo-01/forgejo-plan.md) | Draft | 2026-10-01 |

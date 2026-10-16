@@ -1,14 +1,14 @@
 # RFC — Accélérer le démarrage de che-code : copie conditionnelle dans l'init container
 
-Oct 6, 2026 · @Maxime · Statut : Implémentée (`weebo-si/che-code`, `develop`), PR upstream à ouvrir
+Oct 6, 2026 · @Maxime · Statut : Implémentée (`weebo-si/che-code`, `develop`), révisée après review le 16 oct. 2026 (restauration déplacée dans le launcher, implémentée dans `a0ee3d3`, tests manuels 1, 2 et 6 à refaire), PR upstream ouverte
 
 ## Résumé
 
 À chaque démarrage d'un workspace VS Code, l'init container `che-code-injector` recopie tout le contenu de l'image che-code (trois assemblies : musl, ubi8, ubi9) dans le volume `checode`. Ce volume est persistant, donc la copie est refaite à l'identique à chaque boot.
 
-Cette RFC rend la copie conditionnelle. L'image porte une clé de version (`<version VS Code>-<hash du contenu>`), le volume garde la clé de ce qu'il contient, et l'init container ne recopie les assemblies que si les deux diffèrent. Les fichiers que le launcher modifie en place à chaque boot, les entrypoints et les settings Machine restent copiés à chaque démarrage, ce qui garde le comportement actuel.
+Cette RFC rend la copie conditionnelle. L'image porte une clé de version (`<version VS Code>-<hash du contenu>`), le volume garde la clé de ce qu'il contient, et l'init container ne recopie les assemblies que si les deux diffèrent. Le launcher restaure les fichiers qu'il patche depuis une copie vierge qu'il garde à côté (`<fichier>.orig`), donc l'init container n'a plus besoin de les connaître. Les entrypoints et les settings Machine restent copiés à chaque démarrage, ce qui garde le comportement actuel.
 
-Le changement touche deux fichiers de `che-code` : `build/scripts/entrypoint-init-container.sh` et `build/dockerfiles/assembly.Dockerfile`. Il est développé sur le fork `weebo-si/che-code`, intégré à notre `develop`, puis proposé upstream à `che-incubator/che-code`.
+Le changement touche `build/scripts/entrypoint-init-container.sh`, `build/dockerfiles/assembly.Dockerfile` et les patchers du launcher (`launcher/src/`) dans `che-code`. Il est développé sur le fork `weebo-si/che-code`, intégré à notre `develop`, puis proposé upstream à `che-incubator/che-code`.
 
 C'est le premier axe d'un travail plus large, qui vise un second boot VS Code sous les 40 s (voir [Objectifs](#objectifs-et-non-objectifs)).
 
@@ -51,7 +51,7 @@ Le launcher (`launcher/src/`) tourne dans le répertoire de l'assembly choisie (
 
 | Fichier | Modifié par | Méthode |
 |---|---|---|
-| `product.json` | `product-json.ts` (via `openvsix-registry`, `trusted-extensions`, `webview-resources`) | Réécriture du JSON |
+| `product.json` | `product-json.ts` (via `openvsix-registry`, `trusted-extensions`, `webview-resources`, `editor-configurations`) | Réécriture du JSON |
 | `out/vs/code/browser/workbench/workbench.js` | `devworkspace-id.ts`, `openvsix-registry.ts`, `local-storage-key-provider.ts`, `webview-resources.ts` | `content.replace(MASQUE, valeur)` |
 | `out/vs/workbench/workbench.web.main.internal.js` | idem | idem |
 | `out/vs/workbench/api/node/extensionHostProcess.js` | `webview-resources.ts` | idem |
@@ -80,7 +80,6 @@ Cette RFC est le premier axe. Les mesures détaillées de la section Contexte di
 **Non-objectifs**
 
 - Ne copier que l'assembly utilisée par le conteneur dev. L'init container ne connaît pas la libc ni la version d'OpenSSL du conteneur dev. C'est un axe possible plus tard, via une variable d'environnement ou une détection déléguée à `entrypoint-volume.sh`.
-- Patcher depuis des copies de référence dans le launcher (voir [Alternatives](#alternatives-considérées)).
 - Rendre les settings Machine modifiables et persistants par l'utilisateur.
 - Optimiser le launcher, le serveur VS Code ou le chargement du workbench.
 
@@ -114,14 +113,6 @@ RUN cd /mnt/rootfs \
 ```sh
 set -e
 
-# Files the launcher patches in place on every start: always restore them from the image.
-# Keep in sync with launcher/src/files.ts and launcher/src/product-json.ts.
-PATCHED_FILES="product.json
-out/vs/code/browser/workbench/workbench.js
-out/vs/workbench/workbench.web.main.internal.js
-out/vs/workbench/api/node/extensionHostProcess.js"
-ASSEMBLIES="checode-linux-musl checode-linux-libc/ubi8 checode-linux-libc/ubi9"
-
 version=$(cat /checode.version)
 if [ "$(cat /checode/.checode.version 2>/dev/null)" != "$version" ]; then
   echo "[INFO] Copying checode $version to the volume"
@@ -131,13 +122,7 @@ if [ "$(cat /checode/.checode.version 2>/dev/null)" != "$version" ]; then
   cp -r /checode-* /checode/
   printf '%s' "$version" > /checode/.checode.version
 else
-  echo "[INFO] checode $version already on the volume, restoring patched files"
-  for assembly in $ASSEMBLIES; do
-    for file in $PATCHED_FILES; do
-      cp "/$assembly/$file" "/checode/$assembly/$file"
-      rm -f "/checode/$assembly/$file.gz"
-    done
-  done
+  echo "[INFO] checode $version already on the volume"
 fi
 
 # Copy entrypoint
@@ -156,20 +141,54 @@ Points de conception :
 - **`rm -rf` puis `cp`, sans `rsync --delete`.** `cp -r` n'efface pas les fichiers que la nouvelle version a supprimés, d'où le `rm -rf`. `rsync` serait plus rapide sur une petite mise à jour, mais ajouterait une dépendance à l'image.
 - **`set -e`.** Une copie ratée (disque plein, permissions) fait échouer l'init container au lieu de poser le marqueur sur un volume incomplet. Aujourd'hui, une erreur de `cp` passe inaperçue.
 - **`remote/`.** Seul `remote/data/Machine/settings.json` est copié, au lieu de `cp -r /remote /checode`. Le résultat est le même, puisque l'image ne contient que ce fichier dans `remote/`. Le launcher y fusionne ensuite la ConfigMap des settings, comme aujourd'hui.
-- **Fichiers patchés.** Les quatre fichiers sont restaurés dans les trois assemblies, puisque l'init container ne sait pas laquelle sera utilisée. Leurs `.gz` sont supprimés pour que `post-patch-compression.ts` les régénère depuis les fichiers patchés.
+- **Fichiers patchés.** L'init container ne les restaure plus, c'est le launcher qui le fait (section suivante). Au second boot, il ne copie plus que l'entrypoint et les settings Machine.
 - **Stratégie `ephemeral`.** Le volume est vide à chaque boot, le marqueur est absent, donc on copie tout, comme aujourd'hui.
 
-### Synchronisation avec le launcher
+### Restauration des fichiers patchés dans le launcher
 
-La liste `PATCHED_FILES` duplique `launcher/src/files.ts`, plus `product.json`. Un fichier ajouté à `files.ts` et oublié dans le script ferait revenir le bug des masques consommés. Un contrôle dans `assembly.Dockerfile` fait échouer le build dans ce cas : il lit les constantes `FILE_*` du `files.js` compilé du launcher et vérifie que chacune, ainsi que `product.json`, figure dans `PATCHED_FILES`. Il échoue aussi s'il ne trouve aucune constante, par exemple si le format de `files.js` change.
+Révisé le 16 oct. 2026 après review de la PR upstream (@RomanNikitenko, @batleforc). La première version restaurait les fichiers patchés depuis l'init container, avec une liste `PATCHED_FILES` synchronisée avec le launcher par un contrôle au build de l'assembly. Cette liste dupliquait une connaissance qui appartient au launcher, et rien dans le launcher n'y renvoyait. Le contrôle ne voyait que les constantes `export const FILE_*` de `files.ts` : un chemin littéral, une constante définie ailleurs ou formatée autrement, ou un nouveau fichier comme `product.json` passait à travers. Un fichier oublié échoue en silence : le premier démarrage marche, les suivants gardent l'ancienne valeur parce que le masque a disparu, et ça ne se voit que quand cette valeur change entre deux démarrages.
 
-Ce contrôle ne peut pas être un test Jest du launcher : ces tests ne tournent que dans le build Docker de chaque plateforme, où `launcher/` est copié seul, sans `build/scripts/`. L'assembly est le seul endroit où le script et le launcher compilé sont présents ensemble.
+La restauration passe dans le launcher, là où le patch a lieu. Chaque patcher lit le fichier qu'il patche via un seul helper :
+
+```ts
+// launcher/src/fs-extra.ts
+const restored = new Set<string>();
+
+/**
+ * Reads a file of the assembly that the launcher patches in place.
+ * The assembly persists between starts, so the first read in this process restores the file
+ * from `<file>.orig` (created on first use): every start patches the content of the image.
+ * Later reads in the same process return the file with the previous patchers' changes.
+ */
+export async function readPatchable(file: string): Promise<string> {
+  if (!restored.has(file)) {
+    const orig = `${file}.orig`;
+    if (fs.existsSync(orig)) {
+      fs.copyFileSync(orig, file);
+    } else {
+      // Copy then rename: a start killed mid-copy must not leave a truncated .orig behind
+      fs.copyFileSync(file, `${orig}.tmp`);
+      fs.renameSync(`${orig}.tmp`, orig);
+    }
+    restored.add(file);
+  }
+  return readFile(file);
+}
+```
+
+- **Restaurer à la première lecture seulement.** La review proposait un `readPristine` qui renvoie toujours le `.orig`. Or les patchers s'enchaînent sur les mêmes fichiers : `workbench.js` et `workbench.web.main.internal.js` passent par `devworkspace-id`, `openvsix-registry`, `webview-resources` et `local-storage-key-provider` ; `product.json` par `openvsix-registry`, `webview-resources`, `trusted-extensions` et `editor-configurations`. Toujours lire le `.orig` ferait que chaque patcher défait le précédent. Le helper restaure le fichier à sa première lecture dans le processus, et les patchers suivants lisent le fichier courant.
+- **Patchers à modifier.** `devworkspace-id.ts`, `openvsix-registry.ts`, `webview-resources.ts`, `local-storage-key-provider.ts` (`update` seulement, pas la lecture de la clé publique) et `ProductJSON.load()` dans `product-json.ts`. Leurs specs mockent `fs-extra` et doivent aussi mocker `readPatchable`.
+- **Les `.orig` correspondent toujours à l'image.** Un changement de version efface `checode-*`, `.orig` compris. Seule l'assembly réellement utilisée en reçoit.
+- **Fichiers `.gz`.** L'init container ne les supprime plus. `post-patch-compression.ts` les réécrit à chaque démarrage, mais en cas d'échec il laisse le `.gz` précédent, que le serveur servirait avec les valeurs du démarrage précédent. Son `catch` doit aussi supprimer le `.gz`, comme le faisait l'init container.
+- **Redémarrage du launcher.** Un nouveau processus launcher dans le même conteneur part d'un ensemble vide et restaure les fichiers depuis `.orig`, comme un nouveau démarrage.
+- **Plus rien à synchroniser.** `PATCHED_FILES`, la boucle de restauration et le contrôle de `assembly.Dockerfile` disparaissent. Un nouveau patcher est correct par défaut tant qu'il lit via `readPatchable`. Un build downstream (Dev Spaces) qui ajoute ses propres patchers n'a plus à toucher l'init container.
 
 ## Stratégie de tests
 
 **Automatisés**
 
-- Le contrôle `files.ts` ↔ `PATCHED_FILES` au build de l'assembly, ci-dessus.
+- Tests de `readPatchable` (nouveau `launcher/tests/fs-extra.spec.ts`, sur un répertoire temporaire) : la première lecture crée `.orig` ; deux patchers dans le même processus s'appliquent tous les deux ; un nouveau processus (`jest.isolateModules`) retrouve le masque et applique une nouvelle valeur ; un `.orig.tmp` résiduel est ignoré.
+- Test garde-fou : seuls `fs-extra.ts` et `post-patch-compression.ts` importent `fs`, et chaque appel `fs.readFile(` de `launcher/src/` figure dans une liste de lectures autorisées hors de l'assembly (devfile, fichier workspace, settings, certificats, clé publique). Un nouveau patcher qui lit avec `fs.readFile` le fait échouer, et son auteur doit choisir entre les deux helpers.
 - Les tests existants du launcher restent verts (`npm test` dans `launcher/`).
 
 **Manuels, sur le cluster weebo-si, avec la stratégie `per-user`**
@@ -179,7 +198,7 @@ Ce contrôle ne peut pas être un test Jest du launcher : ces tests ne tournent 
 3. Mise à jour de l'image entre deux boots : copie complète, aucun fichier de l'ancienne version dans `checode-*`, et les extensions et settings de l'utilisateur sont présents dans `/checode/remote`.
 4. Pod supprimé pendant la copie (`kubectl delete pod` en pleine copie au premier boot) : le boot suivant refait une copie complète et le workspace démarre.
 5. Stratégie `ephemeral` : le démarrage fonctionne comme avant.
-6. Conteneur dev musl (Alpine) et ubi8 : l'IDE démarre, ce qui confirme que les fichiers patchés sont restaurés dans toutes les assemblies.
+6. Conteneur dev musl (Alpine) et ubi8 : l'IDE démarre, et les fichiers `.orig` n'existent que dans l'assembly utilisée.
 
 ## Mesures
 
@@ -325,20 +344,22 @@ Chaque run crée puis supprime son propre workspace. Les mesures sont séquentie
 - **OOM de l'injector au premier boot avec la limite upstream de 256Mi.** Sur ce cluster, la copie des 2,7 Go des trois assemblies dans un volume vide est tuée (`OOMKilled`) à 256Mi avec `che-code:7.123.0`, `che-code:next` et nos images, mais pas avec `che-code:7.121.0`, présente sur le nœud depuis des semaines. Le contenu (taille, nombre de fichiers), le script et `cp` sont les mêmes. La mémoire consommée est du cache de pages (fichiers lus et écrits), pas de la mémoire de processus. Hypothèse, non prouvée faute d'un second nœud : le cache des fichiers d'une image déjà lue est compté dans un autre cgroup. Ce problème est upstream et indépendant de cette RFC, mais il bloquera la création de workspaces VS Code au passage à Che 7.123. Mitigation : 512Mi suffisent dans nos mesures, 1Gi laisse de la marge. Copier une seule assembly (non-objectif ci-dessus) diviserait aussi la quantité copiée par trois. À reproduire sur un cluster à plusieurs nœuds, puis à remonter à `che-incubator/che-code`.
 - **Changement d'UID entre deux boots.** Si l'UID du pod change (namespace recréé, `securityContext` modifié), `rm` et `cp` sur des fichiers existants peuvent échouer. Avec `set -e`, l'init container échoue de façon visible au lieu de démarrer sur un contenu à moitié copié. Le problème existe déjà aujourd'hui avec `cp` sur des fichiers existants. À vérifier sur OpenShift et sur Kubernetes vanilla.
 - **Volume partagé.** Le design suppose un volume `checode` propre à chaque workspace (subpath par workspace avec `per-user`). À confirmer dans DevWorkspace Operator. Si deux workspaces partageaient le même chemin, deux copies simultanées pourraient s'entremêler.
-- **Fichier patché oublié.** Couvert par le contrôle au build de l'assembly, à condition que les futurs patchs passent par `files.ts`.
+- **Patcher qui contourne `readPatchable`.** Fait revenir le bug silencieux pour ce fichier. Couvert par le test garde-fou, tant qu'il passe par `fs-extra`. Un patcher hors de `launcher/src/` ne serait pas couvert.
 
 ## Plan de livraison
 
 1. Créer le fork `weebo-si/che-code`. Il est déjà déclaré dans `forks.yaml`, avec `feat/init-copy-cache` mergée dans `develop`.
 2. ~~Relever les mesures manquantes de la section Contexte sur l'image actuelle.~~ Fait, voir [Mesures](#mesures).
 3. Implémenter sur `feat/init-copy-cache` (Dockerfile, script, test), avec `Signed-off-by` sur chaque commit.
-4. Construire l'image depuis `develop` poussée sur le fork public, déployer sur le cluster weebo-si, dérouler les tests manuels et remesurer le second boot complet par rapport à la cible de 40 s.
-5. Ouvrir la PR upstream vers `che-incubator/che-code` avec les mesures avant/après.
-6. Une fois la PR mergée upstream, retirer `feat/init-copy-cache` de `develop.merge`.
+4. Réviser après review : ajouter `readPatchable` et ses tests, y passer les cinq patchers, supprimer le `.gz` périmé quand la compression échoue, retirer `PATCHED_FILES`, la boucle de restauration et le contrôle de `assembly.Dockerfile`. Refaire les tests manuels 1, 2 et 6.
+5. Construire l'image depuis `develop` poussée sur le fork public, déployer sur le cluster weebo-si, dérouler les tests manuels et remesurer le second boot complet par rapport à la cible de 40 s.
+6. Ouvrir la PR upstream vers `che-incubator/che-code` avec les mesures avant/après.
+7. Une fois la PR mergée upstream, retirer `feat/init-copy-cache` de `develop.merge`.
 
 ## Licences
 
 - `che-code` est sous EPL-2.0. Les fichiers modifiés gardent leur licence et leur en-tête Red Hat, sans ligne weebo-si ajoutée.
+- Le nouveau `launcher/tests/fs-extra.spec.ts` reçoit l'en-tête du launcher avec `Copyright (c) 2026 Contributors to the Eclipse Foundation` (che-code n'a pas de vérificateur d'en-tête, décidé le 2026-10-07).
 - Aucune nouvelle dépendance : `find`, `sha256sum` et `sed` viennent de l'image builder existante.
 - Une image che-code donnée à un client ou publiée doit être construite depuis un commit poussé sur le fork public `weebo-si/che-code` (EPL-2.0 §3.2). L'image embarque aussi VS Code (MIT) : ses notices restent dans l'image.
 - La contribution upstream demande un ECA signé avec l'email de l'auteur des commits.
@@ -347,7 +368,8 @@ Chaque run crée puis supprime son propre workspace. Les mesures sont séquentie
 
 - **Clé = `commit` de `product.json` (commit VS Code).** Déjà présent dans l'image, mais il ne change pas quand seul le code che-code bouge (launcher, extensions che-*). Le volume garderait alors un contenu périmé. Rejeté.
 - **Clé = digest de l'image passé par l'editor definition.** Exact, mais le conteneur ne connaît pas son propre digest. Il faudrait toucher `che-operator` et les editor definitions. Rejeté pour rester dans un seul repo.
-- **Patcher depuis des copies de référence dans le launcher (`workbench.js.orig`).** Plus robuste à long terme, puisque plus aucune liste n'est à synchroniser. Mais il modifie six fichiers du launcher, le diff est plus gros à faire accepter upstream, et la restauration par l'init container donne le même résultat. Option à reconsidérer si la liste des fichiers patchés devient difficile à maintenir.
+- **Restaurer depuis l'init container avec une liste `PATCHED_FILES` (première version de cette RFC).** Diff plus petit, tout dans l'init container. Mais la liste duplique le launcher, le contrôle au build ne voit que les constantes `FILE_*` de `files.ts`, et un fichier oublié échoue en silence, seulement quand une valeur change entre deux démarrages. Remplacé après review.
+- **Restaurer tous les fichiers patchés au début de `Main.start()`.** Un appel au lieu d'un helper, mais ça ramène une liste de fichiers à maintenir. Rejeté.
 - **`rsync --delete`.** Copie incrémentale, mais nouvelle dépendance dans l'image de l'injector. Rejeté.
 
 ## Questions ouvertes
