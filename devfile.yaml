@@ -47,4 +47,7 @@ projects:
       checkoutFrom:
         remote: origin
         revision: develop
-
+  - name: weebodevimage
+    git:
+      remotes:
+        origin: https://github.com/batleforc/WeeboDevImage.git
