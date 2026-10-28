@@ -97,7 +97,7 @@ export interface WorkspaceStorageQuotaCheck {
 
 **`StorageClassService`**
 - `getExpandability(storageClassName)`: user token → on failure `unknown`. Missing `storageClassName` → `unknown`.
-- Cache results in memory (TTL ~5 min, keyed by class name).
+- No cache: the result depends on the user's permissions, so it can't be shared between users.
 
 **`PvcService`**
 - `getInfo(namespace, workspace)`: resolve PVC (section 3), read it with the user token, compute `WorkspaceStorageInfo`.
@@ -276,7 +276,7 @@ Rules:
 - User token OK → `allowed` / `forbidden` from `allowVolumeExpansion`.
 - User token fails (403 or other) → `unknown`.
 - No `storageClassName` → `unknown`.
-- Cache hit avoids a second API call; cache expiry triggers a new one.
+- A result is never shared between users (one user's 403 doesn't hide another's `allowed`).
 
 ### 7.4 Backend — `PvcService.resize`
 - Valid expansion → merge patch sent with the user token and the correct body.
