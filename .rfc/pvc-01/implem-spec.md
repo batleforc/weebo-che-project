@@ -15,7 +15,7 @@ Workspaces with a full PVC can fail to start (`project-clone` crashes with "no s
 ## 2. Locked decisions
 
 1. **UI placement**: a new **Storage** tab in Workspace Details (`Overview | Devfile | Storage | Events | Logs`).
-2. **StorageClass read** (`allowVolumeExpansion`): try with the **user token** first; on 403 fall back to the **dashboard service account** (if the operator grants it); if both fail, expansion capability is `unknown` and the resize is still allowed (the `PersistentVolumeClaimResize` admission controller rejects it server-side if not permitted).
+2. **StorageClass read** (`allowVolumeExpansion`): read with the **user token** only (no service account fallback, the dashboard gets no new RBAC); if it fails, expansion capability is `unknown` and the resize is still allowed (the `PersistentVolumeClaimResize` admission controller rejects it server-side if not permitted).
 3. **PVC patch**: performed with the **user token** only. Never with the service account.
 4. **Usage**: `exec` of `df -Pk /projects` in the workspace container, **only when the workspace is running**. No Prometheus / kubelet stats dependency.
 5. **Shared PVC** (`per-user` strategy): allowed, but always flagged with a `[Shared]` badge and a notice in the resize modal.
@@ -96,7 +96,7 @@ export interface WorkspaceStorageQuotaCheck {
 ### 4.3 Services
 
 **`StorageClassService`**
-- `getExpandability(storageClassName)`: user token → on 403 service account → on failure `unknown`. Missing `storageClassName` → `unknown`.
+- `getExpandability(storageClassName)`: user token → on failure `unknown`. Missing `storageClassName` → `unknown`.
 - Cache results in memory (TTL ~5 min, keyed by class name).
 
 **`PvcService`**
@@ -129,21 +129,15 @@ export interface WorkspaceStorageQuotaCheck {
 
 ## 5. Operator (`che-operator`)
 
-Add to the dashboard ClusterRole (read-only, non-sensitive):
-
-```yaml
-- apiGroups: ["storage.k8s.io"]
-  resources: ["storageclasses"]
-  verbs: ["get"]
-```
+No change to the dashboard ClusterRole: the dashboard doesn't read storage classes with its service account.
+Admins who want `allowVolumeExpansion` shown can bind a `get storageclasses` ClusterRole to the users
+(e.g. `system:authenticated`); otherwise expandability is `unknown` and the API server decides.
 
 Check that the user role granted in Che namespaces includes `patch` on `persistentvolumeclaims`, and `get`/`list` on `resourcequotas` and `limitranges`. Add them if missing.
 
 Status (che-operator `develop`):
-- [ ] Dashboard ClusterRole: `get` on `storageclasses` is missing.
 - [x] `eclipse-che-edit`: `patch` on `persistentvolumeclaims` and `create` on `pods/exec` are present.
 - [ ] `eclipse-che-edit`: `get`/`list` on `resourcequotas` and `limitranges` are missing (quota check is `unavailable` for regular users).
-- Alternative to the service account fallback: bind a `get storageclasses` ClusterRole to `system:authenticated`, so the user token read succeeds (the dashboard tries it first).
 
 ## 6. Frontend (`packages/dashboard-frontend`)
 
@@ -280,8 +274,7 @@ Rules:
 
 ### 7.3 Backend — `StorageClassService`
 - User token OK → `allowed` / `forbidden` from `allowVolumeExpansion`.
-- User 403 → service account used.
-- Both fail → `unknown`.
+- User token fails (403 or other) → `unknown`.
 - No `storageClassName` → `unknown`.
 - Cache hit avoids a second API call; cache expiry triggers a new one.
 
