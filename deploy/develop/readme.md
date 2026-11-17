@@ -44,6 +44,11 @@ The image is pinned to `sha-<short>` of the `develop` commit: the init container
 when the image does not change, so a moving tag would hide a new build. Update the tag after each
 rebuild of `develop`.
 
+`che-code-external-node-editor.yaml` is the same editor with `CHECODE_EXTERNAL_NODE=true`
+(RFC che-code-03): the IDE runs with the Node.js of the dev image, which must be the major version
+of `code/remote/.npmrc` in che-code (24 today). Editor id: `weebo-si/che-code/develop-external-node`.
+When the IDE does not open, read `/checode/entrypoint-logs.txt` in the dev container.
+
 Testing the container fonts (RFC che-code-02), with the `che-min-mise` image (FiraCode Nerd Font):
 
 1. On a machine without FiraCode Nerd Font, set
