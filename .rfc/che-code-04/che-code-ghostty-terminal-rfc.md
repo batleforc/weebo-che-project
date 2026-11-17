@@ -20,7 +20,14 @@ Le changement touche `weebo-si/che-code` (branche `feat/ghostty-terminal`), `for
 - Gestion des graphèmes pour les écritures complexes (devanagari, arabe), `XTPUSHSGR` / `XTPOPSGR`, absents de xterm.js.
 - Licence MIT, aucune dépendance d'exécution.
 
-La motivation exacte côté weebo-si reste à écrire (voir [Questions ouvertes](#questions-ouvertes)) : c'est elle qui fixe les critères du go / no-go.
+### Le problème à résoudre
+
+Le terminal intégré se comporte parfois mal avec les applications plein écran qui redessinent beaucoup, Claude Code en premier. L'hypothèse de cette RFC est que le moteur de Ghostty fait mieux. **Elle n'est pas démontrée**, pour deux raisons :
+
+- le défaut peut venir de xterm.js lui-même, ou de ce que VS Code met autour (rendu WebGL, intégration shell, décorations, pty host). Dans le second cas, changer de moteur ne corrige rien ;
+- ghostty-web a ses propres bugs ouverts sur ce que Claude Code utilise le plus : Ctrl+C (#204), Alt+touche (#203), collage par Ctrl+V dans un CLI d'agent (#148), forme du curseur et défilement à la souris (#145), redessin à chaque frame (#208).
+
+La première étape est donc de vérifier l'hypothèse avant d'écrire du code dans che-code (voir [Étape 0](#étape-0--vérifier-lhypothèse-sans-toucher-à-che-code)).
 
 ### État du projet (relevé le 17 nov. 2026)
 
@@ -71,6 +78,18 @@ Deux constats structurent la conception :
 - Proposer le changement à `che-incubator/che-code`.
 
 ## Conception
+
+### Étape 0 : vérifier l'hypothèse sans toucher à che-code
+
+ghostty-web fournit une démo qui ouvre un vrai shell dans une page : `npx @ghostty-web/demo@next`. Lancée dans le conteneur de dev d'un workspace, elle donne le moteur de Ghostty dans le même navigateur, avec le même shell, la même police et le même Claude Code que le terminal intégré.
+
+1. **Lister les symptômes.** Pour chaque défaut constaté dans le terminal intégré : ce qu'on fait, ce qu'on voit, une capture. Sans cette liste, rien n'est comparable.
+2. **Isoler la cause côté VS Code.** Rejouer chaque symptôme avec `terminal.integrated.gpuAcceleration: off` puis `terminal.integrated.shellIntegration.enabled: false`. Un symptôme qui disparaît n'est pas un défaut du moteur : il se règle par un réglage par défaut dans l'image, sans cette RFC.
+3. **Rejouer dans la démo ghostty-web** les symptômes qui restent, plus une session Claude Code normale (saisie longue, collage, Ctrl+C, Échap, Maj+Tab, défilement pendant une réponse, redimensionnement).
+
+La démo écoute sur `127.0.0.1:8080` et ouvre un shell : l'atteindre par un transfert de port du workspace, sans endpoint public dans le devfile.
+
+**Critère pour continuer** : au moins un symptôme de la liste disparaît dans la démo, et aucun des bugs ouverts de ghostty-web ne rend Claude Code moins utilisable que dans le terminal intégré. Sinon, no-go, et les symptômes vont en issues chez xterm.js ou VS Code.
 
 ### Choix du moteur
 
@@ -144,7 +163,7 @@ Après les tests ci-dessous, trois issues possibles :
 
 ## Plan de livraison
 
-1. Écrire la motivation et les critères de go / no-go dans cette RFC.
+1. Étape 0 : liste des symptômes, essais des réglages VS Code, essai de la démo ghostty-web. Résultats ajoutés à cette RFC. Arrêt ici si le critère n'est pas rempli.
 2. Branche `feat/ghostty-terminal` sur `weebo-si/che-code`, créée depuis l'ancêtre commun de `main` et `7.123.x` comme les autres, avec `Signed-off-by` sur chaque commit.
 3. Adaptateur, réglage, ressource WASM, test, règles de rebase.
 4. `forks.yaml` : ajouter `{ branch: feat/ghostty-terminal, rfc: che-code-04 }` à `che-code.develop.merge`, puis `task forks:update` pour reconstruire `develop`.
@@ -166,11 +185,11 @@ Après les tests ci-dessous, trois issues possibles :
 - **Remplacer aussi `@xterm/headless` dans le pty host.** ghostty-web n'a pas de sérialisation, donc plus de reconnexion. Rejeté.
 - **Implémenter markers, décorations et hooks du parser dans l'adaptateur.** Revient à réécrire une partie de xterm.js au-dessus d'un buffer qui n'expose pas ses événements. À faire dans ghostty-web, pas dans che-code. Rejeté pour cette étape.
 - **Attendre.** La feuille de route de ghostty-web (#156) et la distribution WASM officielle de Ghostty peuvent combler les écarts sans travail de notre part. C'est l'issue « no-go » : elle reste ouverte à chaque étape.
-- **Corriger xterm.js** pour le besoin précis (graphèmes, `XTPUSHSGR`). Profite à l'upstream VS Code et n'ajoute rien à maintenir. À comparer une fois la motivation écrite.
+- **Corriger xterm.js ou régler VS Code** pour les symptômes précis. Profite à l'upstream et n'ajoute rien à maintenir. C'est l'issue de l'étape 0 quand un symptôme vient d'un réglage ou d'un bug identifié.
 
 ## Questions ouvertes
 
-- Quel problème concret veut-on résoudre (rendu des graphèmes, fidélité à Ghostty natif, performances, protocole clavier) ? Sans réponse mesurable, pas de critère de go.
+- Quels sont précisément les symptômes avec Claude Code (scintillement, lignes en double, curseur mal placé, raccourcis perdus, lenteur) ? À lister à l'étape 0.
 - Version à épingler : `0.4.0` (stable, ancienne) ou une `next` (à jour, sans garantie) ?
 - Les fonctions perdues en mode `ghostty` sont-elles acceptables pour un usage quotidien, ou le moteur reste-t-il une démonstration ?
 - weebo-si est-elle prête à contribuer à ghostty-web (hooks du parser, markers, sérialisation) si la décision est « go » ?
