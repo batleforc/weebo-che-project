@@ -1,6 +1,6 @@
 # RFC — Remplacer xterm.js par ghostty-web dans le terminal de che-code
 
-Nov 17, 2026 · @Maxime · Statut : Draft
+Nov 17, 2026 · @Maxime · Statut : En cours de validation (`weebo-si/che-code`, `feat/ghostty-terminal`)
 
 ## Résumé
 
@@ -90,7 +90,7 @@ ghostty-web fournit une démo qui ouvre un vrai shell dans une page : `npx @ghos
    | Des chaînes de caractères apparaissent dans le shell quand la souris bouge sur le terminal | Suivi de souris resté actif : une application plein écran l'active (`CSI ? 1000/1002/1003/1006 h`) et s'arrête sans le désactiver (processus tué, page rechargée, reconnexion). Le terminal envoie alors chaque mouvement au shell, qui l'affiche (`35;40;12M`…). Ce n'est pas un défaut du moteur : Ghostty applique le même mode | Quand ça arrive, `printf '\e[?1000l\e[?1002l\e[?1003l\e[?1006l'` : si les chaînes cessent, l'hypothèse est confirmée. Noter ce qui précédait (rechargement, arrêt de Claude Code) |
    | Certains raccourcis ne fonctionnent pas | Touche prise par le navigateur ou par les raccourcis de VS Code avant d'atteindre le terminal (`terminal.integrated.commandsToSkipShell`, `sendKeybindingsToShell`). Un autre moteur dans VS Code ne change pas cette couche | Lister les raccourcis. Les essayer dans la démo ghostty-web (pas de VS Code autour) et avec `sendKeybindingsToShell: true` |
    | Curseur mal placé | Largeur de caractères comptée différemment par l'application et le terminal (emoji, graphèmes), ou curseur matériel masqué puis mal restauré | Noter le texte affiché à ce moment. Comparer avec `terminal.integrated.unicodeVersion` et dans la démo. C'est le symptôme où Ghostty a le plus de chances de faire mieux |
-2. **Isoler la cause côté VS Code.** Rejouer chaque symptôme avec `terminal.integrated.gpuAcceleration: off` puis `terminal.integrated.shellIntegration.enabled: false`. Un symptôme qui disparaît n'est pas un défaut du moteur : il se règle par un réglage par défaut dans l'image, sans cette RFC.
+2. **Isoler la cause côté VS Code.** che-code fixe le défaut de `terminal.integrated.gpuAcceleration` à `'canvas'` (règle de rebase upstream, « to fix the invisible characters issue »). Cette valeur n'existe plus (`auto`, `on`, `off`) et le rendu canvas a été retiré de xterm.js 6 : le terminal de che-code tourne donc toujours sur le **rendu DOM**, le plus lent des trois. Rejouer chaque symptôme avec `terminal.integrated.gpuAcceleration: on` (WebGL), puis avec `terminal.integrated.shellIntegration.enabled: false`. Un symptôme qui disparaît n'est pas un défaut du moteur : il se règle par un réglage par défaut dans l'image, sans cette RFC.
 3. **Rejouer dans la démo ghostty-web** les symptômes qui restent, plus une session Claude Code normale (saisie longue, collage, Ctrl+C, Échap, Maj+Tab, défilement pendant une réponse, redimensionnement).
 
 La démo écoute sur `127.0.0.1:8080` et ouvre un shell : l'atteindre par un transfert de port du workspace, sans endpoint public dans le devfile.
@@ -99,35 +99,44 @@ La démo écoute sur `127.0.0.1:8080` et ouvre un shell : l'atteindre par un tra
 
 ### Choix du moteur
 
-Dans `terminalInstance.ts`, au point où le constructeur xterm est chargé :
+Dans `TerminalInstance._createXterm`, après le chargement du constructeur xterm :
 
 ```ts
-const engine = this._configurationService.getValue(TerminalSettingId.ExperimentalEngine);
-const Terminal = engine === 'ghostty'
-	? (await import('./xterm/ghosttyTerminal.js')).GhosttyTerminal
-	: (await importAMDNodeModule<typeof import('@xterm/xterm')>('@xterm/xterm', 'lib/xterm.js')).Terminal;
+let Terminal = await TerminalInstance.getXtermConstructor(this._keybindingService, this._contextKeyService);
+if (this._configurationService.getValue('terminal.integrated.experimental.engine') === 'ghostty') {
+	try {
+		Terminal = await getGhosttyConstructor();
+	} catch (e) {
+		this._logService.error('ghostty-web could not be loaded, using xterm.js', e);
+	}
+}
 ```
 
-Le réglage est lu à la création du terminal : un changement s'applique aux terminaux suivants. Il est déclaré dans `terminalConfiguration.ts`, qui a déjà une règle de rebase che-code.
+Le réglage est lu à la création du terminal : un changement s'applique aux terminaux suivants. Si ghostty-web ne se charge pas, le terminal s'ouvre avec xterm.js. Les terminaux détachés (chat, aperçus) restent sur xterm.js. Le réglage est déclaré dans `terminalConfiguration.ts`, qui a déjà une règle de rebase che-code.
 
-### Adaptateur : `ghosttyTerminal.ts`
+### Adaptateur : `che/ghosttyTerminal.ts`
 
-Un seul nouveau fichier, `code/src/vs/workbench/contrib/terminal/browser/xterm/ghosttyTerminal.ts`. Il exporte une classe qui étend le `Terminal` de ghostty-web et complète l'interface `Terminal` de `@xterm/xterm` attendue par le reste du code :
+Un seul nouveau fichier, `code/src/vs/workbench/contrib/terminal/browser/che/ghosttyTerminal.ts`. Il renvoie un constructeur que `XtermTerminal` utilise comme celui de xterm.js. L'objet créé est un `Proxy` autour du `Terminal` de ghostty-web :
 
-- **Chargement du WASM.** `init()` cherche le WASM par une URL `data:`, refusée par notre CSP (`connect-src 'self' ws: wss: https:`, issue #188). L'adaptateur appelle `Ghostty.load(<URL du fichier ghostty-vt.wasm servi par le serveur VS Code>)` une fois, puis passe l'instance à chaque terminal (`new Terminal({ ghostty })`). La compilation WASM est déjà permise par le `'unsafe-eval'` du `script-src` de `workbench.html`. Aucune modification de CSP.
-- **Membres absents, neutralisés.** `parser.register*Handler` renvoie un `IDisposable` vide, `registerMarker` et `registerDecoration` renvoient `undefined`, `onWriteParsed` est émis après chaque `write`, `onLineFeed` n'émet jamais, `unicode` expose une version fixe, `loadAddon` ignore les addons xterm (webgl, search, serialize, image, ligatures, progress, clipboard, unicode11).
-- **Options.** Les options inconnues de ghostty-web sont ignorées.
-- **Contrat de `attachCustomKeyEventHandler`.** Inversé dans l'adaptateur tant que #192 est ouverte, avec un commentaire qui cite l'issue.
+- **Chargement.** Le module ESM (`dist/ghostty-web.js`) est importé par son URL, servie avec les autres modules web. La bibliothèque sait charger son WASM depuis une URL `data:` embarquée, refusée par notre CSP (`connect-src 'self' ws: wss: https:`, issue #188) : l'adaptateur appelle `Ghostty.load(<URL de ghostty-vt.wasm>)` une fois, puis passe l'instance à chaque terminal. La compilation WASM est déjà permise par le `'unsafe-eval'` du `script-src`. Aucune modification de CSP.
+- **Ouverture anticipée.** ghostty-web refuse toute écriture avant `open()`, alors que VS Code écrit dans des terminaux jamais affichés (tâches en arrière-plan). L'adaptateur ouvre le terminal dès sa création dans un élément détaché qui reproduit la structure attendue par VS Code (`.xterm` > `.xterm-screen`), et l'attache au DOM quand VS Code appelle `open()`.
+- **Taille des cellules.** VS Code calcule colonnes et lignes à partir de `_core._renderService.dimensions`. L'adaptateur y expose les métriques du rendu de ghostty-web, pour que les deux soient d'accord.
+- **Membres absents, neutralisés.** `parser.register*Handler` renvoie un `IDisposable` vide, `registerMarker` et `registerDecoration` renvoient `undefined`, `onWriteParsed` est émis après chaque `write`, `onLineFeed` n'émet jamais, `unicode` expose une version fixe modifiable, `loadAddon` active les addons de VS Code et ignore ceux de xterm.js qui échouent (webgl, unicode11…). Les fournisseurs de liens de VS Code ne sont pas transmis : ghostty-web garde sa détection des URL et des liens OSC 8.
+- **Tout le reste** (membres non listés, autres API privées de `_core`) tombe dans un objet neutre qui se lit, s'appelle et se libère sans erreur, avec un avertissement dans la console du navigateur à la première utilisation (`[ghostty] xterm.js API not available: …`). Ces avertissements sont la liste des écarts à traiter.
+- **Contrats inversés.** `attachCustomKeyEventHandler` et `attachCustomWheelEventHandler` sont inversés par rapport à xterm.js (#192), l'adaptateur rétablit le sens.
+- **Scrollback.** ghostty-web lit la limite en octets et non en lignes (#140) : l'adaptateur multiplie par 2000, valeur approximative.
+- **Options.** Seules `cols`, `rows`, `theme`, `fontSize`, `fontFamily`, `cursorBlink`, `cursorStyle` et `scrollback` sont transmises. `lineHeight`, `letterSpacing` et les épaisseurs de police sont ignorées.
 
-Conséquences assumées en mode `ghostty` : pas de décorations ni de navigation entre commandes, pas de sticky scroll, pas de quick fix, pas de recherche, pas de suggestions du terminal, pas de rendu GPU, pas de lecteur d'écran. Les outils d'agent qui lisent la sortie par les markers ne fonctionnent pas. La détection des commandes côté serveur continue (xterm headless).
+Conséquences assumées en mode `ghostty` : pas de décorations ni de navigation entre commandes, pas de sticky scroll, pas de quick fix, pas de recherche, pas de suggestions du terminal, pas de liens vers les fichiers, pas de rendu GPU, pas de lecteur d'écran. Les outils d'agent qui lisent la sortie par les markers ne fonctionnent pas. La détection des commandes côté serveur continue (xterm headless).
 
-À vérifier à l'implémentation : que le code appelant accepte partout un `registerMarker` qui renvoie `undefined` (40 appels hors tests), et le sort des 19 usages de `_core`. Chaque garde ajoutée hors de l'adaptateur est une ligne de plus à porter aux rebases : au-delà d'une dizaine de fichiers touchés, c'est un critère de no-go.
+L'adaptateur est une maquette de validation, pas une implémentation : si le moteur est gardé, les API manquantes sont à implémenter dans ghostty-web.
 
 ### Build et image
 
-- `ghostty-web` est ajouté à `code/package.json` et `code/remote/web/package.json`, version exacte (pas de `^` : le projet est en 0.x).
-- `ghostty-vt.wasm` doit être servi avec les modules web. Le mécanisme exact dans le build `vscode-reh-web` est à vérifier à l'implémentation (comment les `.wasm` de `vscode-oniguruma` y sont déjà inclus).
-- Règles de rebase dans `.rebase/` pour les fichiers upstream modifiés (`terminalInstance.ts` et `terminalConfiguration.ts` ont déjà les leurs, `package.json` aussi).
+- `ghostty-web` est ajouté à `code/package.json` (types) et `code/remote/web/package.json` (fichiers servis au navigateur), en version exacte `0.4.0-next.21.g640db46` : la version `next` du commit `640db46` de `main`, parce que la stable `0.4.0` a onze mois de corrections de retard.
+- Les dépendances de `remote/web` sont copiées telles quelles dans le build web (`gulpfile.vscode.web.ts`), `.wasm` compris. Rien à ajouter au build.
+- `code/build/.webignore` retire tous les fichiers `LICENSE` des modules web : une exception garde celui de ghostty-web (voir [Licences](#licences)).
+- Règles de rebase dans `.rebase/` pour les cinq fichiers upstream modifiés, et deux cas ajoutés à `rebase.sh` (`code/remote/web/package.json`, `code/build/.webignore`).
 - `che-images` : aucun changement, l'image est construite depuis `develop`.
 
 ### Point de décision
@@ -139,6 +148,8 @@ Après les tests ci-dessous, trois issues possibles :
 - **Go pour la suite** : contribuer à ghostty-web les API nécessaires (au minimum hooks du parser, markers, sérialisation), dans une RFC séparée. Le remplacement par défaut ne s'envisage qu'après.
 
 ## Stratégie de tests
+
+**État au 17 nov. 2026** : la branche compile (`tsgo --project src/tsconfig.json --noEmit`). L'adaptateur n'a jamais tourné dans un navigateur : le premier test manuel ci-dessous est aussi son premier lancement.
 
 **Automatisés**
 
@@ -178,9 +189,9 @@ Après les tests ci-dessous, trois issues possibles :
 
 ## Licences
 
-- `che-code` est sous EPL-2.0, VS Code (`code/`) sous MIT. Les fichiers upstream modifiés gardent leur en-tête Microsoft. Le nouveau fichier `ghosttyTerminal.ts` est dans `code/` : en-tête à confirmer avant d'écrire le fichier (l'en-tête du launcher décidé le 7 oct. 2026 vise les fichiers che-code, pas l'arbre VS Code).
-- `ghostty-web` : MIT, `Copyright (c) 2025 Coder`. Autorisé par nos règles. Sa notice doit être livrée dans l'image.
-- `ghostty-vt.wasm` contient du code de Ghostty (MIT, Mitchell Hashimoto et contributeurs) lié statiquement. **À vérifier avant d'ajouter la dépendance** : la liste des bibliothèques tierces compilées dans la cible `lib-vt` en `wasm32-freestanding` et leurs licences, puisque le paquet npm ne livre que la licence de Coder. Leurs notices sont à ajouter à celles de l'image.
+- `che-code` est sous EPL-2.0, VS Code (`code/`) sous MIT. Les fichiers upstream modifiés gardent leur en-tête Microsoft. Le nouveau fichier est dans un dossier `che/`, comme les autres fichiers che-code de l'arbre VS Code, avec l'en-tête EPL-2.0 `Copyright (c) 2026 Contributors to the Eclipse Foundation` (règle du 7 oct. 2026) et `eslint-disable header/header`.
+- `ghostty-web` : MIT, `Copyright (c) 2025 Coder`. Autorisé par nos règles. Son fichier `LICENSE` est livré dans l'image à côté du code (exception dans `.webignore`).
+- `ghostty-vt.wasm` contient du code de Ghostty (MIT, `Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors`) lié statiquement. Vérifié dans les sources de Ghostty au commit épinglé par ghostty-web (`5714ed0`, `src/build/GhosttyZig.zig`) : Oniguruma est désactivé pour ce module, et les bibliothèques SIMD (simdutf, highway) ne sont liées qu'avec la libc, absente de la cible `wasm32-freestanding`. Restent les tables Unicode générées. **À faire avant toute distribution à un client** : livrer aussi la notice MIT de Ghostty, que le paquet npm ne contient pas, et confirmer la licence des tables Unicode.
 - Pas d'approbation Eclipse Foundation (ClearlyDefined / IP) à demander tant que le changement reste sur le fork. Elle deviendrait nécessaire pour une contribution upstream.
 - L'image reste construite depuis un commit poussé sur le fork public, avec les labels `org.opencontainers.image.source`, `.revision` et `.licenses`.
 - Marques : « Ghostty » est le nom d'un projet tiers. Le réglage et sa description disent « moteur basé sur ghostty-web », sans logo.

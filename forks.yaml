@@ -60,6 +60,8 @@ forks:
       merge:
         - { branch: feat/init-copy-cache, rfc: che-code-01 }
         - { branch: feat/container-fonts, rfc: che-code-02 }
+        # Validation build, off by default (terminal.integrated.experimental.engine). Never upstream
+        - { branch: feat/ghostty-terminal, rfc: che-code-04 }
 
   che-docs:
     develop:
