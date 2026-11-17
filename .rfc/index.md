@@ -8,6 +8,7 @@
 | che-code-01 | [RFC — Accélérer le démarrage de che-code : copie conditionnelle dans l'init container](che-code-01/che-code-startup-rfc.md) | Implémentée (`weebo-si/che-code`, `develop`), révisée après review le 16 oct. 2026 (restauration déplacée dans le launcher, implémentée dans `a0ee3d3`, comparée sur `sha-31fe75a`), PR upstream ouverte | 2026-10-06 |
 | che-code-02 | [RFC — Rendre les polices du conteneur dev utilisables dans VS Code (navigateur)](che-code-02/che-code-fonts-rfc.md) | En cours d'implémentation (`weebo-si/che-code`, `feat/container-fonts`) | 2026-10-07 |
 | che-code-03 | [RFC — Exécuter che-code avec le Node.js de l'image de dev](che-code-03/che-code-external-node-rfc.md) | Draft | 2026-10-13 |
+| che-code-04 | [RFC — Remplacer xterm.js par ghostty-web dans le terminal de che-code](che-code-04/che-code-ghostty-terminal-rfc.md) | Draft | 2026-11-17 |
 | forgejo-01 | [Implementation plan — Native Forgejo support in Eclipse Che gitServices](forgejo-01/forgejo-plan.md) | Draft | 2026-10-01 |
 | forgejo-01 | [RFC — Support natif de Forgejo dans les gitServices d'Eclipse Che / Dev Spaces](forgejo-01/forgejo-rfc.md) | Draft | 2026-09-30 |
 | jetbrains-01 | [RFC — Utiliser le plugin JetBrains Gateway sur un cluster Kubernetes (namespace saisi par l'utilisateur)](jetbrains-01/jetbrains-k8s-namespace-rfc.md) | En cours d'implémentation (`weebo-si/devspaces-gateway-plugin`, `feat/k8s-namespace`) | 2026-10-07 |
