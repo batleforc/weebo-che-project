@@ -83,7 +83,13 @@ Deux constats structurent la conception :
 
 ghostty-web fournit une démo qui ouvre un vrai shell dans une page : `npx @ghostty-web/demo@next`. Lancée dans le conteneur de dev d'un workspace, elle donne le moteur de Ghostty dans le même navigateur, avec le même shell, la même police et le même Claude Code que le terminal intégré.
 
-1. **Lister les symptômes.** Pour chaque défaut constaté dans le terminal intégré : ce qu'on fait, ce qu'on voit, une capture. Sans cette liste, rien n'est comparable.
+1. **Lister les symptômes.** Relevé du 17 nov. 2026, à compléter par une reproduction et une capture pour chacun :
+
+   | Symptôme | Cause probable (hypothèse, non vérifiée) | Vérification |
+   |---|---|---|
+   | Des chaînes de caractères apparaissent dans le shell quand la souris bouge sur le terminal | Suivi de souris resté actif : une application plein écran l'active (`CSI ? 1000/1002/1003/1006 h`) et s'arrête sans le désactiver (processus tué, page rechargée, reconnexion). Le terminal envoie alors chaque mouvement au shell, qui l'affiche (`35;40;12M`…). Ce n'est pas un défaut du moteur : Ghostty applique le même mode | Quand ça arrive, `printf '\e[?1000l\e[?1002l\e[?1003l\e[?1006l'` : si les chaînes cessent, l'hypothèse est confirmée. Noter ce qui précédait (rechargement, arrêt de Claude Code) |
+   | Certains raccourcis ne fonctionnent pas | Touche prise par le navigateur ou par les raccourcis de VS Code avant d'atteindre le terminal (`terminal.integrated.commandsToSkipShell`, `sendKeybindingsToShell`). Un autre moteur dans VS Code ne change pas cette couche | Lister les raccourcis. Les essayer dans la démo ghostty-web (pas de VS Code autour) et avec `sendKeybindingsToShell: true` |
+   | Curseur mal placé | Largeur de caractères comptée différemment par l'application et le terminal (emoji, graphèmes), ou curseur matériel masqué puis mal restauré | Noter le texte affiché à ce moment. Comparer avec `terminal.integrated.unicodeVersion` et dans la démo. C'est le symptôme où Ghostty a le plus de chances de faire mieux |
 2. **Isoler la cause côté VS Code.** Rejouer chaque symptôme avec `terminal.integrated.gpuAcceleration: off` puis `terminal.integrated.shellIntegration.enabled: false`. Un symptôme qui disparaît n'est pas un défaut du moteur : il se règle par un réglage par défaut dans l'image, sans cette RFC.
 3. **Rejouer dans la démo ghostty-web** les symptômes qui restent, plus une session Claude Code normale (saisie longue, collage, Ctrl+C, Échap, Maj+Tab, défilement pendant une réponse, redimensionnement).
 
