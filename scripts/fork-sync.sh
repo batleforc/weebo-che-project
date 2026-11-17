@@ -51,6 +51,16 @@ push_all() {
   if ((${#PUSHES[@]} == 0)); then say "nothing to push"; return; fi
   if ((FAILED)); then warn "$fork: errors above, nothing pushed"; return; fi
   if [[ $PUSH != true ]]; then say "dry run, would push: ${PUSHES[*]}"; return; fi
+  # The clone is blobless and only origin is a promisor remote: a push that carries many upstream
+  # commits fails on "missing object". Fetch the blobs it needs from upstream first, in one batch.
+  local p shas=() missing
+  for p in "${PUSHES[@]}"; do p=${p%%:*}; shas+=("${p#+}"); done
+  missing=$(command git rev-list --objects --missing=print "${shas[@]}" --not --remotes=origin | sed -n 's/^?//p')
+  if [[ -n $missing ]]; then
+    say "fetching $(wc -l <<<"$missing") missing objects from upstream"
+    git -c fetch.negotiationAlgorithm=noop fetch -q --no-tags --no-write-fetch-head \
+      --recurse-submodules=no --filter=blob:none --stdin upstream <<<"$missing"
+  fi
   git push --atomic origin "${PUSHES[@]}"
 }
 
